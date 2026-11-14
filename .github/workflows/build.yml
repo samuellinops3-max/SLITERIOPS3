@@ -1,4 +1,3 @@
-
 name: Build PS3 Homebrew
 
 on:
@@ -12,15 +11,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ps3dev/ps3dev:latest
 
     steps:
       - name: Baixar o projeto
         uses: actions/checkout@v4
-
-      - name: Preparar imagem PS3DEV
-        run: |
-          git clone https://github.com/ps3dev/ps3dev-docker.git /tmp/ps3dev-docker
-          docker build -t ps3dev-toolchain /tmp/ps3dev-docker
 
       - name: Gerar ícone
         run: |
@@ -30,11 +26,7 @@ jobs:
 
       - name: Compilar SELF e PKG
         run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/build" \
-            -w /build \
-            ps3dev-toolchain \
-            bash -lc "make && make pkg"
+          make && make pkg
 
       - name: Conferir arquivos gerados
         run: |

@@ -1,4 +1,3 @@
-// Cobra Arena - PS3 1280x720 60FPS - Otimizado RSX / CPU leve
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +10,6 @@
 #include <sysutil/video.h>
 #include <rsx/rsx.h>
 #include <io/pad.h>
-
 #define CB_SIZE (0x100000)
 #define HOST_SIZE (32*1024*1024)
 #define WORLD 5200.0f
@@ -23,267 +21,47 @@
 #define SPR 32
 #define FIXW 1280
 #define FIXH 720
-
+#define TILEW 124
+#define TILEH 108
 typedef struct{float x[MAXSEG],y[MAXSEG];int len,alive,respawn,boost,grow,score,tick;float ang,tgt;u32 col;u32 col2;}Snake;
 typedef struct{float x,y;int size,active;float ph;u32 col;}Pellet;
-
 static const u32 palette[11]={0x00FF4D6D,0x0038B6FF,0x0038E07A,0x00FFD23F,0x00B04DFF,0x00FF8FAB,0x0000E5C0,0x00FF9F43,0x00FF5A00,0x00FFE600,0x0000FF9E};
-static gcmContextData *ctx;
-static u32 W=FIXW,H=FIXH;
-static u32 *fb[2];static u32 fboff[2];static u32 *back;static u32 *bgbuf;
-static int cur=0,first_flip=1;static volatile int running=1;
-
-// Sprites pre-renderizados 1x: [cor][32*32] 0 = transparente
-static u32 ballSpr[11][SPR*SPR];
-static u32 ballSmall[11][16*16];
-static u32 pelletSpr[11][16*16];
-static float sinTab[256],cosTab[256];
-
-static Snake sn[NSN];static Pellet pel[NPEL];
-static int pelrot=0,dead_t=0,frame=0;
-static float camx=2600,camy=2600,zoom=1.0f;
-static float pad_ax=0,pad_ay=0,pad_mag=0;static int pad_boost=0;
-static float g_dt=1.0f/60.0f;
-
+static gcmContextData *ctx;static u32 W=FIXW,H=FIXH;static u32 *fb[2];static u32 fboff[2];static u32 *back;static u32 *bgbuf;static int cur=0,first_flip=1;static volatile int running=1;
+static u32 ballSpr[11][SPR*SPR];static u32 pelletSpr[11][16*16];static u32 whiteSpr[SPR*SPR];static u32 blackSpr[SPR*SPR];static u32 tileBuf[TILEH*TILEW];static float sinTab[256],cosTab[256];
+static Snake sn[NSN];static Pellet pel[NPEL];static int pelrot=0,dead_t=0,frame=0;static float camx=2600,camy=2600,zoom=1.0f;static float pad_ax=0,pad_ay=0,pad_mag=0;static int pad_boost=0;static float g_dt=1.0f/60.0f;
 static void sysutil_cb(u64 s,u64 p,void *u){(void)p;(void)u;if(s==SYSUTIL_EXIT_GAME)running=0;}
-
-static void init_screen(void){
- void *host=memalign(1024*1024,HOST_SIZE);rsxInit(&ctx,CB_SIZE,HOST_SIZE,host);
- // Forca 720p nativo - nitidez
- videoConfiguration vc;memset(&vc,0,sizeof(vc));
- vc.resolution=VIDEO_RESOLUTION_720;vc.format=VIDEO_BUFFER_FORMAT_XRGB;
- vc.aspect=VIDEO_ASPECT_AUTO;vc.pitch=FIXW*4;
- videoConfigure(VIDEO_PRIMARY,&vc,NULL,0);
- videoState st;videoGetState(VIDEO_PRIMARY,0,&st);
- gcmSetFlipMode(GCM_FLIP_VSYNC);
- W=FIXW;H=FIXH;
- for(int i=0;i<2;i++){fb[i]=(u32*)rsxMemalign(64,W*H*4);gcmAddressToOffset(fb[i],&fboff[i]);gcmSetDisplayBuffer(i,fboff[i],W*4,W,H);}
- back=(u32*)memalign(64,W*H*4);
- bgbuf=(u32*)memalign(64,W*H*4);
- memset(back,0,W*H*4);memset(bgbuf,0,W*H*4);
- gcmResetFlipStatus();
-}
+static void init_screen(void){void *host=memalign(1024*1024,HOST_SIZE);rsxInit(&ctx,CB_SIZE,HOST_SIZE,host);videoConfiguration vc;memset(&vc,0,sizeof(vc));vc.resolution=VIDEO_RESOLUTION_720;vc.format=VIDEO_BUFFER_FORMAT_XRGB;vc.aspect=VIDEO_ASPECT_AUTO;vc.pitch=FIXW*4;videoConfigure(VIDEO_PRIMARY,&vc,NULL,0);videoState st;videoGetState(VIDEO_PRIMARY,0,&st);gcmSetFlipMode(GCM_FLIP_VSYNC);W=FIXW;H=FIXH;for(int i=0;i<2;i++){fb[i]=(u32*)rsxMemalign(64,W*H*4);gcmAddressToOffset(fb[i],&fboff[i]);gcmSetDisplayBuffer(i,fboff[i],W*4,W,H);}back=(u32*)memalign(64,W*H*4);bgbuf=(u32*)memalign(64,W*H*4);memset(back,0,W*H*4);memset(bgbuf,0,W*H*4);gcmResetFlipStatus();}
 static void wait_flip(void){while(gcmGetFlipStatus()!=0)usleep(200);gcmResetFlipStatus();}
-static void present(void){
- if(!first_flip)wait_flip();else gcmResetFlipStatus();
- memcpy(fb[cur],back,W*H*4);
- gcmSetFlip(ctx,cur);rsxFlushBuffer(ctx);gcmSetWaitFlip(ctx);
- cur^=1;first_flip=0;
-}
-
-// Tabelas sin/cos - zero sinf/cosf no loop
-static void init_tables(void){
- for(int i=0;i<256;i++){float a=(float)i*(2*PI/256.0f);sinTab[i]=sinf(a);cosTab[i]=cosf(a);}
-}
+static void present(void){if(!first_flip)wait_flip();else gcmResetFlipStatus();memcpy(fb[cur],back,W*H*4);gcmSetFlip(ctx,cur);rsxFlushBuffer(ctx);gcmSetWaitFlip(ctx);cur^=1;first_flip=0;}
+static void init_tables(void){for(int i=0;i<256;i++){float a=(float)i*(2*PI/256.0f);sinTab[i]=sinf(a);cosTab[i]=cosf(a);}}
 static inline float fast_sin(float a){while(a<0)a+=2*PI;while(a>=2*PI)a-=2*PI;return sinTab[(int)(a*(256.0f/(2*PI)))&255];}
 static inline float fast_cos(float a){while(a<0)a+=2*PI;while(a>=2*PI)a-=2*PI;return cosTab[(int)(a*(256.0f/(2*PI)))&255];}
-
-// Pre-renderiza sprites 1x antes do loop - nunca no frame
-static void init_sprites(void){
- for(int c=0;c<11;c++){
-  u32 col=palette[c];int sr=(col>>16)&255,sg=(col>>8)&255,sb=col&255;
-  for(int y=0;y<SPR;y++)for(int x=0;x<SPR;x++){
-   float dx=(x-15.5f)/15.5f,dy=(y-15.5f)/15.5f;float d2=dx*dx+dy*dy;
-   if(d2>1.0f){ballSpr[c][y*SPR+x]=0;continue;}
-   float d=sqrtf(d2);float a=1.0f-d;a=a*a*(3-2*a);
-   float light=0.60f+0.40f*(1.0f-(dx*0.6f+dy*0.4f));if(light>1)light=1;if(light<0.3f)light=0.3f;
-   int r=(int)(sr*light),g=(int)(sg*light),b=(int)(sb*light);
-   int alpha=(int)(a*255);if(alpha>255)alpha=255;
-   ballSpr[c][y*SPR+x]=((u32)alpha<<24)|(r<<16)|(g<<8)|b;
-  }
-  for(int y=0;y<16;y++)for(int x=0;x<16;x++){
-   int sx=x*2,sy=y*2;u32 s=ballSpr[c][sy*SPR+sx];
-   ballSmall[c][y*16+x]=s;
-   // Pellet = mesma bola, mais brilho
-   int a=(s>>24)&255;int r=((s>>16)&255);if(r<235)r+=20;
-   pelletSpr[c][y*16+x]=((u32)a<<24)|(r<<16)|((s>>8)&255)<<8|(s&255);
-  }
- }
-}
-
-// Fundo hexagonal pre-renderizado 1x
-static void init_bg(void){
- for(u32 i=0;i<W*H;i++)bgbuf[i]=0xFF161C22;
- // Linhas hexagonais leves - so 1x
- for(int gy=0;gy<(int)H;gy+=54){
-  for(int gx=0;gx<(int)W;gx+=124){
-   int ox=((gy/54)%2==0)?0:62;
-   for(int k=0;k<6;k++){
-    float a1=(k*60-30)*PI/180.0f,a2=((k+1)*60-30)*PI/180.0f;
-    int x1=gx+ox+(int)(cosf(a1)*62),y1=gy+(int)(sinf(a1)*62);
-    int x2=gx+ox+(int)(cosf(a2)*62),y2=gy+(int)(sinf(a2)*62);
-    int dx=abs(x2-x1),dy=abs(y2-y1);int sx=x1<x2?1:-1,sy=y1<y2?1:-1,err=dx-dy;
-    while(1){if(x1>=0&&x1<(int)W&&y1>=0&&y1<(int)H)bgbuf[y1*W+x1]=0xFF2A3644;if(x1==x2&&y1==y2)break;int e2=2*err;if(e2>-dy){err-=dy;x1+=sx;}if(e2<dx){err+=dx;y1+=sy;}}
-   }
-  }
- }
-}
-
-// Blit rapido 32 bits - sem divisao por pixel, sem blend pesado
-static inline void blit_sprite(int cx,int cy,const u32 *spr,int sz,int scale){
- int w=sz*scale;int x0=cx-w/2,y0=cy-w/2;
- if(x0+ w<0||x0>=(int)W||y0+w<0||y0>=(int)H)return;
- for(int y=0;y<sz;y++){
-  int dy=y0+y*scale;if(dy<0||dy>=(int)H)continue;
-  for(int x=0;x<sz;x++){
-   u32 s=spr[y*sz+x];if(!s)continue;int a=(s>>24)&255;if(a<30)continue;
-   for(int sy=0;sy<scale;sy++)for(int sx=0;sx<scale;sx++){
-    int px=x0+x*scale+sx,py=dy+sy;if(px<0||px>=(int)W||py<0||py>=(int)H)continue;
-    if(a>=250){back[py*W+px]=0xFF000000|(s&0xFFFFFF);}
-    else{ // blend rapido inteiro
-     u32 d=back[py*W+px];int sr=(s>>16)&255,sg=(s>>8)&255,sb=s&255;
-     int dr=(d>>16)&255,dg=(d>>8)&255,db=d&255,ia=255-a;
-     back[py*W+px]=0xFF000000|(((sr*a+dr*ia)>>8)<<16)|(((sg*a+dg*ia)>>8)<<8)|((sb*a+db*ia)>>8);
-    }
-   }
-  }
- }
-}
-static void fill_rect_fast(int x,int y,int w,int h,u32 c){
- int x0=x<0?0:x,y0=y<0?0:y,x1=x+w,y1=y+h;if(x1>(int)W)x1=W;if(y1>(int)H)y1=H;
- for(int yy=y0;yy<y1;yy++){u32 *p=back+yy*W;for(int xx=x0;xx<x1;xx++)p[xx]=c;}
-}
+static void init_sprites(void){for(int c=0;c<11;c++){u32 col=palette[c];int sr=(col>>16)&255,sg=(col>>8)&255,sb=col&255;for(int y=0;y<SPR;y++)for(int x=0;x<SPR;x++){float dx=(x-15.5f)/15.5f,dy=(y-15.5f)/15.5f;float d2=dx*dx+dy*dy;if(d2>1.0f){ballSpr[c][y*SPR+x]=0;continue;}float d=sqrtf(d2);float a=1.0f-d;a=a*a*(3-2*a);float light=0.60f+0.40f*(1.0f-(dx*0.6f+dy*0.4f));if(light>1)light=1;if(light<0.3f)light=0.3f;int alpha=(int)(a*255);if(alpha>255)alpha=255;ballSpr[c][y*SPR+x]=((u32)alpha<<24)|(((int)(sr*light))<<16)|(((int)(sg*light))<<8)|((int)(sb*light));}for(int y=0;y<16;y++)for(int x=0;x<16;x++){u32 s=ballSpr[c][(y*2)*SPR+x*2];int a=(s>>24)&255;int r=((s>>16)&255);if(r<235)r+=20;pelletSpr[c][y*16+x]=((u32)a<<24)|(r<<16)|((s>>8)&255)<<8|(s&255);}}for(int y=0;y<SPR;y++)for(int x=0;x<SPR;x++){float dx=(x-15.5f)/15.5f,dy=(y-15.5f)/15.5f;float d2=dx*dx+dy*dy;if(d2>1.0f){whiteSpr[y*SPR+x]=0;blackSpr[y*SPR+x]=0;continue;}float d=sqrtf(d2);float a=1.0f-d;a=a*a*(3-2*a);int alpha=(int)(a*255);if(alpha>255)alpha=255;whiteSpr[y*SPR+x]=((u32)alpha<<24)|(255<<16)|(255<<8)|255;blackSpr[y*SPR+x]=((u32)alpha<<24)|0;}}
+static void init_bg(void){for(u32 i=0;i<W*H;i++)bgbuf[i]=0xFF161C22;for(int gy=0;gy<(int)H;gy+=54){for(int gx=0;gx<(int)W;gx+=124){int ox=((gy/54)%2==0)?0:62;for(int k=0;k<6;k++){float a1=(k*60-30)*PI/180.0f,a2=((k+1)*60-30)*PI/180.0f;int x1=gx+ox+(int)(cosf(a1)*62),y1=gy+(int)(sinf(a1)*62);int x2=gx+ox+(int)(cosf(a2)*62),y2=gy+(int)(sinf(a2)*62);int dx=abs(x2-x1),dy=abs(y2-y1);int sx=x1<x2?1:-1,sy=y1<y2?1:-1,err=dx-dy;while(1){if(x1>=0&&x1<(int)W&&y1>=0&&y1<(int)H)bgbuf[y1*W+x1]=0xFF2A3644;if(x1==x2&&y1==y2)break;int e2=2*err;if(e2>-dy){err-=dy;x1+=sx;}if(e2<dx){err+=dx;y1+=sy;}}}}}for(int y=0;y<TILEH;y++)for(int x=0;x<TILEW;x++)tileBuf[y*TILEW+x]=bgbuf[y*W+x];}
+static inline void blit_sprite(int cx,int cy,const u32 *spr,int sz,int scale){int w=sz*scale;int x0=cx-w/2,y0=cy-w/2;if(x0+w<0||x0>=(int)W||y0+w<0||y0>=(int)H)return;for(int y=0;y<sz;y++){int dy=y0+y*scale;if(dy<0||dy>=(int)H)continue;for(int x=0;x<sz;x++){u32 s=spr[y*sz+x];if(!s)continue;int a=(s>>24)&255;if(a<30)continue;for(int sy=0;sy<scale;sy++)for(int sx=0;sx<scale;sx++){int px=x0+x*scale+sx,py=dy+sy;if(px<0||px>=(int)W||py<0||py>=(int)H)continue;if(a>=250)back[py*W+px]=0xFF000000|(s&0xFFFFFF);else{u32 d=back[py*W+px];int sr=(s>>16)&255,sg=(s>>8)&255,sb=s&255;int dr=(d>>16)&255,dg=(d>>8)&255,db=d&255,ia=255-a;back[py*W+px]=0xFF000000|(((sr*a+dr*ia)>>8)<<16)|(((sg*a+dg*ia)>>8)<<8)|((sb*a+db*ia)>>8);}}}}}
+static void fill_rect_fast(int x,int y,int w,int h,u32 c){int x0=x<0?0:x,y0=y<0?0:y,x1=x+w,y1=y+h;if(x1>(int)W)x1=W;if(y1>(int)H)y1=H;for(int yy=y0;yy<y1;yy++){u32 *p=back+yy*W;for(int xx=x0;xx<x1;xx++)p[xx]=c;}}
 typedef struct{char c;const char *p;}Glyph;
 static const Glyph glyphs[]={{'0',"###""#.#""#.#""#.#""###"},{'1',".#.""##.""#.""#.""###"},{'2',"###""..#""###""#..""###"},{'3',"###""..#""###""..#""###"},{'4',"#.#""#.#""###""..#""..#"},{'5',"###""#..""###""..#""###"},{'6',"###""#..""###""#.#""###"},{'7',"###""..#""..#""..#""..#"},{'8',"###""#.#""###""#.#""###"},{'9',"###""#.#""###""..#""###"},{'A',".#.""#.#""###""#.#""#.#"},{'B',"##.""#.#""##.""#.#""##."},{'C',"###""#..""#..""#..""###"},{'E',"###""#..""###""#..""###"},{'G',"###""#..""#.#""#.#""###"},{'M',"#.#""###""###""#.#""#.#"},{'O',"###""#.#""#.#""#.#""###"},{'P',"###""#.#""###""#..""#.."},{'R',"##.""#.#""##.""#.#""#.#"},{'S',"###""#..""###""..#""###"},{'T',"###"".#."".#."".#."".#."},{'U',"#.#""#.#""#.#""#.#""###"},{'V',"#.#""#.#""#.#""#.#"".#."},{'X',"#.#""#.#"".#.""#.#""#.#"}};
 static const char *find_glyph(char c){for(unsigned i=0;i<sizeof(glyphs)/sizeof(glyphs[0]);i++)if(glyphs[i].c==c)return glyphs[i].p;return NULL;}
 static void draw_text(const char *s,int x,int y,int sc,u32 c){for(;*s;s++){const char *g=find_glyph(*s);if(g)for(int r=0;r<5;r++)for(int k=0;k<3;k++)if(g[r*3+k]=='#')fill_rect_fast(x+k*sc,y+r*sc,sc,sc,c);x+=4*sc;}}
-
 static float frand(void){return (float)rand()/(float)RAND_MAX;}
 static float radius_of(const Snake *s){int l=s->len>240?240:s->len;return 10.0f+l*0.045f;}
 static void add_pellet(float x,float y,int size){for(int k=0;k<NPEL;k++){int i=(pelrot+k)%NPEL;if(!pel[i].active){pel[i].x=x;pel[i].y=y;pel[i].size=size;pel[i].active=1;pel[i].col=palette[rand()%11];pel[i].ph=frand()*6.28f;pelrot=(i+1)%NPEL;return;}}}
 static void spawn_snake(int i){Snake *s=&sn[i];float x=500+frand()*(WORLD-1000),y=500+frand()*(WORLD-1000);s->ang=frand()*2*PI;s->tgt=s->ang;s->len=16;for(int j=0;j<s->len;j++){s->x[j]=x-fast_cos(s->ang)*SP*j;s->y[j]=y-fast_sin(s->ang)*SP*j;}s->alive=1;s->respawn=0;s->boost=0;s->grow=0;s->tick=0;s->col=palette[i%11];s->col2=palette[(i+4)%11];}
 static void kill_snake(int i){Snake *s=&sn[i];for(int j=0;j<s->len;j+=2)add_pellet(s->x[j]+(frand()-0.5f)*14,s->y[j]+(frand()-0.5f)*14,2);s->alive=0;s->respawn=60;if(i==0)dead_t=0;}
 static int color_index(u32 col){for(int i=0;i<11;i++)if(palette[i]==col)return i;return 0;}
-
-static void bot_think(int i){
- Snake *s=&sn[i];float hx=s->x[0],hy=s->y[0];
- s->tgt+=(frand()-0.5f)*0.22f;
- if(s->tick%6==0){
-  float best=420*420;int bi=-1;
-  for(int k=0;k<NPEL;k++){if(!pel[k].active)continue;float dx=pel[k].x-hx,dy=pel[k].y-hy,d=dx*dx+dy*dy;if(d<best){best=d;bi=k;}}
-  if(bi>=0)s->tgt=atan2f(pel[bi].y-hy,pel[bi].x-hx);
- }
- if(hx<300||hx>WORLD-300||hy<300||hy>WORLD-300)s->tgt=atan2f(WORLD/2-hy,WORLD/2-hx);
- float px2=hx+fast_cos(s->ang)*60,py2=hy+fast_sin(s->ang)*60;float rs=radius_of(s);
- for(int o=0;o<NSN;o++){if(o==i||!sn[o].alive)continue;float lim=rs+radius_of(&sn[o])+28;lim*=lim;
-  for(int j=0;j<sn[o].len;j+=2){float dx=sn[o].x[j]-px2,dy=sn[o].y[j]-py2;if(dx*dx+dy*dy<lim){s->tgt=s->ang+1.7f;return;}}}
-}
-
-static void update_snake(int i){
- Snake *s=&sn[i];if(!s->alive){if(--s->respawn<=0)spawn_snake(i);return;}
- s->tick++;
- if(i==0){if(pad_mag>0.10f)s->tgt=atan2f(pad_ay,pad_ax);s->boost=pad_boost;}
- else{bot_think(i);s->boost=(s->len>30&&(s->tick/90)%5==0)?1:0;}
- float d=s->tgt-s->ang;while(d>PI)d-=2*PI;while(d<-PI)d+=2*PI;
- // Delta time: 8.4 rad/s = curva fechada e suave, responde na hora
- float maxTurn=8.4f*g_dt;
- if(d>maxTurn)d=maxTurn;if(d<-maxTurn)d=-maxTurn;s->ang+=d;
- float sp=192.0f*g_dt;if(s->boost&&s->len>12){sp=372.0f*g_dt;if(s->tick%10==0){s->len--;add_pellet(s->x[s->len],s->y[s->len],1);}}
- s->x[0]+=fast_cos(s->ang)*sp;s->y[0]+=fast_sin(s->ang)*sp;
- // Seguir corpo sem sqrtf - so distancia ao quadrado
- for(int j=1;j<s->len;j++){
-  float dx=s->x[j-1]-s->x[j],dy=s->y[j-1]-s->y[j];float d2=dx*dx+dy*dy;
-  if(d2>SP*SP){float dd=sqrtf(d2);float f=(dd-SP)/dd;s->x[j]+=dx*f;s->y[j]+=dy*f;}
- }
- if(s->x[0]<40||s->x[0]>WORLD-40||s->y[0]<40||s->y[0]>WORLD-40){kill_snake(i);return;}
- float rs=radius_of(s),er=rs+14;float er2=er*er;
- for(int k=0;k<NPEL;k++){if(!pel[k].active)continue;float dx=pel[k].x-s->x[0],dy=pel[k].y-s->y[0];if(dx*dx+dy*dy<er2){pel[k].active=0;s->grow+=pel[k].size;s->score+=pel[k].size*5;}}
- while(s->grow>=2&&s->len<MAXSEG){s->x[s->len]=s->x[s->len-1];s->y[s->len]=s->y[s->len-1];s->len++;s->grow-=2;}
- if(s->len>=MAXSEG)s->grow=0;
- for(int o=0;o<NSN;o++){if(o==i||!sn[o].alive)continue;float lim=(rs+radius_of(&sn[o]))*0.72f;lim*=lim;
-  for(int j=4;j<sn[o].len;j++){float dx=sn[o].x[j]-s->x[0],dy=sn[o].y[j]-s->y[0];if(dx*dx+dy*dy<lim){kill_snake(i);return;}}}
-}
-
+static void bot_think(int i){Snake *s=&sn[i];float hx=s->x[0],hy=s->y[0];s->tgt+=(frand()-0.5f)*0.22f;if(s->tick%6==0){float best=420*420;int bi=-1;for(int k=0;k<NPEL;k++){if(!pel[k].active)continue;float dx=pel[k].x-hx,dy=pel[k].y-hy,d=dx*dx+dy*dy;if(d<best){best=d;bi=k;}}if(bi>=0)s->tgt=atan2f(pel[bi].y-hy,pel[bi].x-hx);}if(hx<300||hx>WORLD-300||hy<300||hy>WORLD-300)s->tgt=atan2f(WORLD/2-hy,WORLD/2-hx);float px2=hx+fast_cos(s->ang)*60,py2=hy+fast_sin(s->ang)*60;float rs=radius_of(s);for(int o=0;o<NSN;o++){if(o==i||!sn[o].alive)continue;float lim=rs+radius_of(&sn[o])+28;lim*=lim;for(int j=0;j<sn[o].len;j+=2){float dx=sn[o].x[j]-px2,dy=sn[o].y[j]-py2;if(dx*dx+dy*dy<lim){s->tgt=s->ang+1.7f;return;}}}}
+static void update_snake(int i){Snake *s=&sn[i];if(!s->alive){if(--s->respawn<=0)spawn_snake(i);return;}s->tick++;if(i==0){if(pad_mag>0.10f)s->tgt=atan2f(pad_ay,pad_ax);s->boost=pad_boost;}else{bot_think(i);s->boost=(s->len>30&&(s->tick/90)%5==0)?1:0;}float d=s->tgt-s->ang;while(d>PI)d-=2*PI;while(d<-PI)d+=2*PI;float maxTurn=8.4f*g_dt;if(d>maxTurn)d=maxTurn;if(d<-maxTurn)d=-maxTurn;s->ang+=d;float sp=192.0f*g_dt;if(s->boost&&s->len>12){sp=384.0f*g_dt;if(s->tick%8==0){s->len--;add_pellet(s->x[s->len],s->y[s->len],1);}}s->x[0]+=fast_cos(s->ang)*sp;s->y[0]+=fast_sin(s->ang)*sp;for(int j=1;j<s->len;j++){float dx=s->x[j]-s->x[j-1],dy=s->y[j]-s->y[j-1];float d2=dx*dx+dy*dy;if(d2<0.0001f){s->x[j]=s->x[j-1]-fast_cos(s->ang)*SP;s->y[j]=s->y[j-1]-fast_sin(s->ang)*SP;continue;}float dd=sqrtf(d2);s->x[j]=s->x[j-1]+dx/dd*SP;s->y[j]=s->y[j-1]+dy/dd*SP;}if(s->x[0]<40||s->x[0]>WORLD-40||s->y[0]<40||s->y[0]>WORLD-40){kill_snake(i);return;}float rs=radius_of(s),er=rs+14;float er2=er*er;for(int k=0;k<NPEL;k++){if(!pel[k].active)continue;float dx=pel[k].x-s->x[0],dy=pel[k].y-s->y[0];if(dx*dx+dy*dy<er2){pel[k].active=0;s->grow+=pel[k].size;s->score+=pel[k].size*5;}}while(s->grow>=2&&s->len<MAXSEG){s->x[s->len]=s->x[s->len-1];s->y[s->len]=s->y[s->len-1];s->len++;s->grow-=2;}if(s->len>=MAXSEG)s->grow=0;for(int o=0;o<NSN;o++){if(o==i||!sn[o].alive)continue;float lim=(rs+radius_of(&sn[o]))*0.72f;lim*=lim;for(int j=2;j<sn[o].len;j++){float dx=sn[o].x[j]-s->x[0],dy=sn[o].y[j]-s->y[0];if(dx*dx+dy*dy<lim){kill_snake(i);return;}}}}
 static void init_game(void){memset(pel,0,sizeof(pel));for(int k=0;k<NPEL;k++)add_pellet(frand()*WORLD,frand()*WORLD,1+(rand()%5==0));for(int i=0;i<NSN;i++){sn[i].score=0;spawn_snake(i);}sn[0].x[0]=WORLD/2;sn[0].y[0]=WORLD/2;for(int j=0;j<sn[0].len;j++){sn[0].x[j]=WORLD/2-j*SP;sn[0].y[j]=WORLD/2;}camx=WORLD/2;camy=WORLD/2;zoom=1.0f;dead_t=0;}
-
-// Analógico: centro 128, deadzone 15 - lido todo frame sem atraso
-static void read_pad(void){
- padInfo info;padData d;pad_ax=pad_ay=pad_mag=0;pad_boost=0;
- ioPadGetInfo(&info);if(info.status[0]){
-  ioPadGetData(0,&d);
-  int rawX=(int)d.ANA_L_H-128;
-  int rawY=(int)d.ANA_L_V-128;
-  if(rawX>-15&&rawX<15)rawX=0;
-  if(rawY>-15&&rawY<15)rawY=0;
-  if(d.BTN_LEFT)rawX=-128;if(d.BTN_RIGHT)rawX=128;
-  if(d.BTN_UP)rawY=-128;if(d.BTN_DOWN)rawY=128;
-  pad_ax=rawX/128.0f;pad_ay=rawY/128.0f;
-  pad_mag=sqrtf(pad_ax*pad_ax+pad_ay*pad_ay);
-  if(pad_mag>1.0f){pad_ax/=pad_mag;pad_ay/=pad_mag;pad_mag=1.0f;}
-  pad_boost=d.BTN_CROSS||d.BTN_R1||d.BTN_R2;
- }
-}
-
-static void update_game(void){
- frame++;for(int i=0;i<NSN;i++)update_snake(i);
- int cnt=0;for(int k=0;k<NPEL;k++)cnt+=pel[k].active;
- for(int n=0;n<2&&cnt<NPEL-40;n++,cnt++)add_pellet(frand()*WORLD,frand()*WORLD,1+(rand()%5==0));
- if(sn[0].alive){camx+=(sn[0].x[0]-camx)*0.10f;camy+=(sn[0].y[0]-camy)*0.10f;}
- else{dead_t++;if(dead_t>60){spawn_snake(0);sn[0].score=0;sn[0].x[0]=camx;sn[0].y[0]=camy;}}
- float targetZoom=1.0f-(sn[0].len*0.0016f);if(targetZoom<0.62f)targetZoom=0.62f;if(targetZoom>1.0f)targetZoom=1.0f;
- zoom+=(targetZoom-zoom)*0.05f;
-}
-
+static void read_pad(void){padInfo info;padData d;pad_ax=pad_ay=pad_mag=0;pad_boost=0;ioPadGetInfo(&info);if(info.status[0]){ioPadGetData(0,&d);int rawX=(int)d.ANA_L_H-128;int rawY=(int)d.ANA_L_V-128;if(rawX>-15&&rawX<15)rawX=0;if(rawY>-15&&rawY<15)rawY=0;if(d.BTN_LEFT)rawX=-128;if(d.BTN_RIGHT)rawX=128;if(d.BTN_UP)rawY=-128;if(d.BTN_DOWN)rawY=128;pad_ax=rawX/128.0f;pad_ay=rawY/128.0f;pad_mag=sqrtf(pad_ax*pad_ax+pad_ay*pad_ay);if(pad_mag>1.0f){pad_ax/=pad_mag;pad_ay/=pad_mag;pad_mag=1.0f;}pad_boost=d.BTN_CROSS||d.BTN_R2;}}
+static void update_game(void){frame++;for(int i=0;i<NSN;i++)update_snake(i);int cnt=0;for(int k=0;k<NPEL;k++)cnt+=pel[k].active;for(int n=0;n<2&&cnt<NPEL-40;n++,cnt++)add_pellet(frand()*WORLD,frand()*WORLD,1+(rand()%5==0));if(sn[0].alive){camx+=(sn[0].x[0]-camx)*0.10f;camy+=(sn[0].y[0]-camy)*0.10f;}else{dead_t++;if(dead_t>60){spawn_snake(0);sn[0].score=0;sn[0].x[0]=camx;sn[0].y[0]=camy;}}float targetZoom=1.0f-(sn[0].len*0.0016f);if(targetZoom<0.62f)targetZoom=0.62f;if(targetZoom>1.0f)targetZoom=1.0f;zoom+=(targetZoom-zoom)*0.05f;}
 static void render(void){
- // Fundo = 1 memcpy, nao redesenha
- memcpy(back,bgbuf,W*H*4);
  float sc=(float)W/1280.0f*zoom;float hw=W/2.0f,hh=H/2.0f;
- // Borda do mundo
+ int offX=(int)(sn[0].x[0]*sc)%TILEW;int offY=(int)(sn[0].y[0]*sc)%TILEH;if(offX<0)offX+=TILEW;if(offY<0)offY+=TILEH;
+ for(int y=0;y<(int)H;y++){int sy=(y+offY)%TILEH;u32 *dst=back+y*W;u32 *src=tileBuf+sy*TILEW;int x=0;while(x<(int)W){int sx=(x+offX)%TILEW;int chunk=TILEW-sx;if(chunk>(int)W-x)chunk=(int)W-x;memcpy(dst+x,src+sx,chunk*4);x+=chunk;}}
  int bx0=(int)((0-camx)*sc+hw),by0=(int)((0-camy)*sc+hh),bx1=(int)((WORLD-camx)*sc+hw),by1=(int)((WORLD-camy)*sc+hh);
- if(bx0>-20||by0>-20||bx1<(int)W+20||by1<(int)H+20){
-  for(int x=bx0;x<=bx1;x+=4){if(x>=0&&x<(int)W){if(by0>=0&&by0<(int)H)back[by0*W+x]=0xFFFF2E2E;if(by1>=0&&by1<(int)H)back[by1*W+x]=0xFFFF2E2E;}}
-  for(int y=by0;y<=by1;y+=4){if(y>=0&&y<(int)H){if(bx0>=0&&bx0<(int)W)back[y*W+bx0]=0xFFFF2E2E;if(bx1>=0&&bx1<(int)W)back[y*W+bx1]=0xFFFF2E2E;}}
- }
- // Pellets - sprite pre-renderizado
- for(int k=0;k<NPEL;k++){
-  if(!pel[k].active)continue;
-  int px=(int)((pel[k].x-camx)*sc+hw),py=(int)((pel[k].y-camy)*sc+hh);
-  if(px<-40||px>(int)W+40||py<-40||py>(int)H+40)continue;
-  int ci=color_index(pel[k].col);
-  int scale=1+(pel[k].size>1?1:0);
-  blit_sprite(px,py,pelletSpr[ci],16,scale);
- }
- // Cobras - 2 passadas, sprite pre-renderizado
- for(int ord=0;ord<2;ord++)for(int i=0;i<NSN;i++){
-  if(!sn[i].alive)continue;if(ord==0&&i==0)continue;if(ord==1&&i!=0)continue;
-  Snake *s=&sn[i];float rs=radius_of(s)*sc;if(rs<6)rs=6;
-  int scale=(int)(rs/16.0f);if(scale<1)scale=1;if(scale>3)scale=3;
-  int ci=color_index(s->col);int ci2=color_index(s->col2);
-  // Corpo de tras pra frente, pula 1 em 2 pra 60fps
-  for(int j=s->len-1;j>=0;j-=1){
-   int px=(int)((s->x[j]-camx)*sc+hw),py=(int)((s->y[j]-camy)*sc+hh);
-   if(px<-60||px>(int)W+60||py<-60||py>(int)H+60)continue;
-   blit_sprite(px,py,ballSpr[(j/3)%2==0?ci:ci2],SPR,scale);
-  }
-  // Cabeca + olhos (2 quadrados brancos + pretos)
-  int hx=(int)((s->x[0]-camx)*sc+hw),hy=(int)((s->y[0]-camy)*sc+hh);
-  float perp=s->ang+PI/2;int eyeOff=(int)(rs*0.55f),fwd=(int)(rs*0.55f);
-  int ex1=hx+(int)(fast_cos(s->ang)*fwd+fast_cos(perp)*eyeOff),ey1=hy+(int)(fast_sin(s->ang)*fwd+fast_sin(perp)*eyeOff);
-  int ex2=hx+(int)(fast_cos(s->ang)*fwd-fast_cos(perp)*eyeOff),ey2=hy+(int)(fast_sin(s->ang)*fwd-fast_sin(perp)*eyeOff);
-  int er=(int)(rs*0.42f)+2;if(er<4)er=4;
-  fill_rect_fast(ex1-er/2,ey1-er/2,er,er,0xFFFFFFFF);fill_rect_fast(ex2-er/2,ey2-er/2,er,er,0xFFFFFFFF);
-  int pr=er/2+1;fill_rect_fast(ex1-pr/2,ey1-pr/2,pr,pr,0xFF000000);fill_rect_fast(ex2-pr/2,ey2-pr/2,pr,pr,0xFF000000);
- }
- char buf[32];int ui=4;if(ui<3)ui=3;
- draw_text("SCORE",24,20,ui,0xFFFFFFFF);sprintf(buf,"%d",sn[0].score);draw_text(buf,24,20+7*ui,ui+2,0xFFFFD23F);
- draw_text("X TURBO",24,(int)H-8*ui,ui,0xFF809BBF);
- int mw=170,mh=110,mx=(int)W-mw-18,my=(int)H-mh-18;
- fill_rect_fast(mx,my,mw,mh,0xFF000000);fill_rect_fast(mx+2,my+2,mw-4,mh-4,0xFF161C22);
- for(int i=0;i<NSN;i++){if(!sn[i].alive)continue;int px=mx+(int)(sn[i].x[0]/WORLD*mw),py=my+(int)(sn[i].y[0]/WORLD*mh);if(px>=mx&&px<mx+mw&&py>=my&&py<my+mh)back[py*W+px]=i==0?0xFFFFE600:0xFF000000|sn[i].col;}
- if(!sn[0].alive)draw_text("GAME OVER",(int)W/2-70,(int)H/2-20,ui*2,0xFFFF4D4D);
-}
-
-int main(int argc,char **argv){
- (void)argc;(void)argv;
- init_screen();init_tables();init_sprites();init_bg();
- ioPadInit(7);sysUtilRegisterCallback(0,sysutil_cb,NULL);srand(20261109);init_game();
- struct timeval tv_last,tv_now;gettimeofday(&tv_last,NULL);
- while(running){
-  gettimeofday(&tv_now,NULL);
-  float dt=(tv_now.tv_sec-tv_last.tv_sec)+(tv_now.tv_usec-tv_last.tv_usec)/1000000.0f;
-  tv_last=tv_now;
-  if(dt<0.001f)dt=0.001f;if(dt>0.033f)dt=0.033f;g_dt=dt;
-  sysUtilCheckCallback();read_pad();update_game();render();present();
- }
- return 0;
-}
+ if(bx0>-20||by0>-20||bx1<(int)W+20||by1<(int)H+20){for(int x=bx0;x<=bx1;x+=4){if(x>=0&&x<(int)W){if(by0>=0&&by0<(int)H)back[by0*W+x]=0xFFFF2E2E;if(by1>=0&&by1<(int)H)back[by1*W+x]=0xFFFF2E2E;}}for(int y=by0;y<=by1;y+=4){if(y>=0&&y<(int)H){if(bx0>=0&&bx0<(int)W)back[y*W+bx0]=0xFFFF2E2E;if(bx1>=0&&bx1<(int)W)back[y*W+bx1]=0xFFFF2E2E;}}}
+ for(int k=0;k<NPEL;k++){if(!pel[k].active)continue;int px=(int)((pel[k].x-camx)*sc+hw),py=(int)((pel[k].y-camy)*sc+hh);if(px<-40||px>(int)W+40||py<-40||py>(int)H+40)continue;int ci=color_index(pel[k].col);blit_sprite(px,py,pelletSpr[ci],16,1+(pel[k].size>1?1:0));}
+ for(int ord=0;ord<2;ord++)for(int i=0;i<NSN;i++){if(!sn[i].alive)continue;if(ord==0&&i==0)continue;if(ord==1&&i!=0)continue;Snake *s=&sn[i];float rs=radius_of(s)*sc;if(rs<6)rs=6;int scale=(int)(rs/16.0f);if(scale<1)scale=1;if(scale>3)scale=3;int ci=color_index(s->col);int ci2=color_index(s->col2);for(int j=s->len-1;j>=1;j--){int px=(int)((s->x[j]-camx)*sc+hw),py=(int)((s->y[j]-camy)*sc+hh);if(px<-60||px>(int)W+60||py<-60||py>(int)H+60)continue;blit_sprite(px,py,ballSpr[(j/3)%2==0?ci:ci2],SPR,scale);}int hx=(int)((s->x[0]-camx)*sc+hw),hy=(int)((s->y[0]-camy)*sc+hh);blit_sprite(hx,hy,ballSpr[ci],SPR,scale);float a1=s->ang+0.6f,a2=s->ang-0.6f;int ex1=hx+(int)(fast_cos(a1)*rs*0.62f),ey1=hy+(int)(fast_sin(a1)*rs*0.62f);int ex2=hx+(int)(fast_cos(a2)*rs*0.62f),ey2=hy+(int)(fast_sin(a2)*rs*0.62f);int eyeScale=scale;if(eyeScale<1)eyeScale=1;blit_sprite(ex1,ey1,whiteSpr,SPR,eyeScale);blit_sprite(ex2,ey2,whiteSpr,SPR,eyeScale);int px1=ex1+(int)(fast_cos(s->ang)*rs*0.18f),py1=ey1+(int)(fast_sin(s->ang)*rs*0.18f);int px2=ex2+(int)(fast_cos(s->ang)*rs*0.18f),py2=ey2+(int)(fast_sin(s->ang)*rs*0.18f);blit_sprite(px1,py1,blackSpr,SPR,1);blit_sprite(px2,py2,blackSpr,SPR,1);}
+ char buf[32];int ui=4;draw_text("SCORE",24,20,ui,0xFFFFFFFF);sprintf(buf,"%d",sn[0].score);draw_text(buf,24,20+7*ui,ui+2,0xFFFFD23F);draw_text("X TURBO",24,(int)H-8*ui,ui,0xFF809BBF);int mw=170,mh=110,mx=(int)W-mw-18,my=(int)H-mh-18;fill_rect_fast(mx,my,mw,mh,0xFF000000);fill_rect_fast(mx+2,my+2,mw-4,mh-4,0xFF161C22);for(int i=0;i<NSN;i++){if(!sn[i].alive)continue;int px=mx+(int)(sn[i].x[0]/WORLD*mw),py=my+(int)(sn[i].y[0]/WORLD*mh);if(px>=mx&&px<mx+mw&&py>=my&&py<my+mh)back[py*W+px]=i==0?0xFFFFE600:0xFF000000|sn[i].col;}if(!sn[0].alive)draw_text("GAME OVER",(int)W/2-70,(int)H/2-20,ui*2,0xFFFF4D4D);}
+int main(int argc,char **argv){(void)argc;(void)argv;init_screen();init_tables();init_sprites();init_bg();ioPadInit(7);sysUtilRegisterCallback(0,sysutil_cb,NULL);srand(20261109);init_game();struct timeval tv_last,tv_now;gettimeofday(&tv_last,NULL);while(running){gettimeofday(&tv_now,NULL);float dt=(tv_now.tv_sec-tv_last.tv_sec)+(tv_now.tv_usec-tv_last.tv_usec)/1000000.0f;tv_last=tv_now;if(dt<0.001f)dt=0.001f;if(dt>0.033f)dt=0.033f;g_dt=dt;sysUtilCheckCallback();read_pad();update_game();render();present();}return 0;}

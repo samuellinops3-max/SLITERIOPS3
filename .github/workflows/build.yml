@@ -11,8 +11,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ps3dev/ps3dev:latest
 
     steps:
       - name: Baixar o projeto
@@ -26,7 +24,11 @@ jobs:
 
       - name: Compilar SELF e PKG
         run: |
-          make && make pkg
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/build" \
+            -w /build \
+            psl1ght/psl1ght:latest \
+            bash -lc "make && make pkg"
 
       - name: Conferir arquivos gerados
         run: |

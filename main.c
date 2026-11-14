@@ -4,8 +4,6 @@
 #include <math.h>
 #include <malloc.h>
 #include <ppu-types.h>
-#include <rsx/gcm.h>
-#include <rsx/nvreg.h>
 #include <io/pad.h>
 #include <tiny3d.h>
 
@@ -99,7 +97,6 @@ u32* create_hex_bg_texture() {
 void init_game() {
     int i, j;
     
-    // Cores seguras com Alpha 0xFF total
     u32 bot_colors[13] = {
         0xFFFF3366, 0xFF33FF99, 0xFF3399FF, 0xFFFFCC00,
         0xFFFF00FF, 0xFF00FFFF, 0xFFFF6600, 0xFF9933FF,
@@ -195,7 +192,6 @@ int main(int argc, char *argv[]) {
     u32 *food_pixels  = create_smooth_gradient_texture(0xFF00FFFF);
     u32 *bg_pixels    = create_hex_bg_texture();
 
-    // Alocação e obtenção correta dos offsets de textura
     texture_snake = tiny3d_AllocTexture(128 * 128 * 4);
     memcpy(texture_snake, snake_pixels, 128 * 128 * 4);
     offset_snake = tiny3d_TextureOffset(texture_snake);
@@ -218,7 +214,6 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Leitura analógico esquerdo com deadzone 0.38f
         float stick_x = ((float)paddata.ANA_L_H - 128.0f) / 128.0f;
         float stick_y = ((float)paddata.ANA_L_V - 128.0f) / 128.0f;
         float stick_mag = sqrtf(stick_x * stick_x + stick_y * stick_y);

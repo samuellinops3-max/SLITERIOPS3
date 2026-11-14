@@ -1,0 +1,57 @@
+name: Build PS3 Homebrew
+
+on:
+  push:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: ps3dev/ps3toolchain:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        run: |
+          apt-get update
+          apt-get install -y python3
+
+      - name: Generate ICON0
+        run: |
+          mkdir -p pkg/USRDIR
+          python3 tools/make_icon.py pkg/ICON0.PNG
+
+      - name: Build
+        run: |
+          set -eux
+
+          make clean
+          make
+
+          test -f neon_coil.self
+
+      - name: Package
+        run: |
+          cp neon_coil.self pkg/USRDIR/EBOOT.BIN
+
+          python3 "$PSL1GHT/tools/bin/pkg.py" \
+            --contentid UP0001-NCAR00001_00-NEONCOILARENA001 \
+            --type 1 \
+            --package_version 01.00 \
+            --file pkg/USRDIR/EBOOT.BIN=/USRDIR/EBOOT.BIN \
+            --file pkg/ICON0.PNG=/ICON0.PNG \
+            --output neon_coil.pkg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-coil-ps3
+          path: |
+            neon_coil.self
+            neon_coil.pkg
+            pkg/ICON0.PNG

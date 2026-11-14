@@ -1,55 +1,26 @@
-name: Build PS3 Homebrew
-
+name: Build PS3 PKG
 on:
   push:
-    branches: [main, master]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    container:
+      image: ps3dev/ps3dev:latest
     steps:
-      - name: Baixar o projeto
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Instalar dependencias e PSL1GHT pronto
+      - name: Build PKG
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libgmp-dev libmpfr-dev libmpc-dev libssl-dev zlib1g-dev python3-pip
-          wget -q https://github.com -O /tmp/ps3dev.tar.gz
-          sudo mkdir -p /usr/local/ps3dev
-          sudo tar -xzf /tmp/ps3dev.tar.gz -C /usr/local/ps3dev --strip-components=1
-
-      - name: Gerar ícone
-        run: |
-          if [ -f tools/make_icon.py ]; then
-            python3 tools/make_icon.py
-          fi
-
-      - name: Compilar SELF e PKG
-        env:
-          PS3DEV: /usr/local/ps3dev
-          PSL1GHT: /usr/local/ps3dev/psl1ght
-          PORTLIBS: /usr/local/ps3dev/portlibs/ppu
-        run: |
-          export PATH="$PATH:$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin:$PSL1GHT/bin"
-          make && make pkg
-
-      - name: Conferir arquivos gerados
-        run: |
-          find . -type f \( -name "*.self" -o -name "*.pkg" \)
-          test -n "$(find . -type f -name '*.self' -print -quit)"
-          test -n "$(find . -type f -name '*.pkg' -print -quit)"
-
-      - name: Disponibilizar arquivos
+          export PSL1GHT=$PS3DEV/psl1ght
+          export PATH=$PS3DEV/ppu/bin:$PATH
+          make pkg
+      - name: Upload PKG
         uses: actions/upload-artifact@v4
         with:
-          name: PS3-Homebrew
-          path: |
-            **/*.self
-            **/*.pkg
+          name: SlitherPS3-pkg
+          path: "*.pkg"
           if-no-files-found: error

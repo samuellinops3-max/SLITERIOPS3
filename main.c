@@ -106,7 +106,7 @@ static void render(void){
  draw_soft(90,42,60,0x00000000,120,texSoft);draw_text("SCORE",24,20,ui,0x00FFFFFF);sprintf(buf,"%d",sn[0].score);draw_text(buf,24,20+7*ui,ui+2,0x00FFD23F);
  draw_text("X TURBO",24,(int)H-8*ui,ui,0x00809BBF);
  int mw=170,mh=110,mx=(int)W-mw-18,my=(int)H-mh-18;fill_rect(mx,my,mw,mh,0x00000000);fill_rect(mx+2,my+2,mw-4,mh-4,0x00161C22);
- for(int i=0;i<NSN;i++){if(!sn[i].alive)continue;int px=mx+(int)(sn[i].x/WORLD*mw),py=my+(int)(sn[i].y/WORLD*mh);draw_soft(px,py,i==0?5:4,i==0?0x00FFE600:sn[i].col,255,texSoft);}
+ for(int i=0;i<NSN;i++){if(!sn[i].alive)continue;int px=mx+(int)(sn[i].x[0]/WORLD*mw),py=my+(int)(sn[i].y[0]/WORLD*mh);draw_soft(px,py,i==0?5:4,i==0?0x00FFE600:sn[i].col,255,texSoft);}
  if(!sn[0].alive)draw_text("GAME OVER",(int)W/2-70,(int)H/2-20,ui*2,0x00FF4D4D);
 }
 int main(int argc,char **argv){(void)argc;(void)argv;init_screen();init_textures();ioPadInit(7);sysUtilRegisterCallback(0,sysutil_cb,NULL);srand(20261109);init_game();while(running){sysUtilCheckCallback();read_pad();update_game();render();present();}return 0;}

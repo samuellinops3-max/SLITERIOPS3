@@ -1,45 +1,38 @@
 ifeq ($(strip $(PSL1GHT)),)
-$(error "PSL1GHT is not set")
+$(error "Defina a variavel PSL1GHT")
 endif
 include $(PSL1GHT)/ppu_rules
-TARGET := SlitherPS3
-TITLE := Slither.io PS3
-APPID := SLIT00001
+
+.DEFAULT_GOAL := all
+
+TARGET    := cobra
+TITLE     := Cobra Arena
+APPID     := COBR00001
 CONTENTID := UP0001-$(APPID)_00-0000000000000000
-BUILD := build
-SOURCES := .
-SFO_XML := sfo.xml
-SFO_FILE := PARAM.SFO
-INCLUDES := -I$(PSL1GHT)/ppu/include/SDL
-CFLAGS := -O2 -Wall -mcpu=cell -mhard-float -I$(PSL1GHT)/ppu/include $(INCLUDES)
-LDFLAGS := -L$(PSL1GHT)/ppu/lib -L$(PORTLIBS)/lib
-LIBS := -lSDL -lSDL_ttf -lSDL_image -lm -lfreetype -lpng -ljpeg -lz -laudio -lio -lrsx -lgcm_sys -lsysutil -lsysmodule -lnet -lnetctl
-CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-OFILES := $(CFILES:.c=.o)
-OFILES := $(OFILES:%=$(BUILD)/%)
-PKGDIR := pkg
-PKGF := $(TARGET).pkg
-all: $(TARGET).elf $(TARGET).self EBOOT.BIN $(SFO_FILE)
-$(TARGET).elf: $(OFILES)
-	@$(CC) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
-$(TARGET).self: $(TARGET).elf
-	@$(SELF) $< $@
-EBOOT.BIN: $(TARGET).self
-	@$(SELF) --npdrm --encrypt $< $@
-	@cp $@ $(TARGET).self.npdrm
-$(SFO_FILE): $(SFO_XML)
-	@$(SFO) --sfo $(SFO_XML) -f $@
-pkg: EBOOT.BIN $(SFO_FILE)
-	@rm -rf $(PKGDIR)
-	@mkdir -p $(PKGDIR)/USRDIR
-	@mkdir -p $(PKGDIR)/META
-	@cp EBOOT.BIN $(PKGDIR)/USRDIR/EBOOT.BIN
-	@cp $(SFO_FILE) $(PKGDIR)/PARAM.SFO
-	@echo "$(CONTENTID)" > $(PKGDIR)/META/PACKAGE_ID
-	@$(PKG) --contentid $(CONTENTID) $(PKGDIR)/ $(PKGF)
-$(BUILD)/%.o: %.c
-	@mkdir -p $(BUILD)
-	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+SFOXML    := sfo.xml
+PORTLIBS  := $(PS3DEV)/portlibs/ppu
+
+MACHDEP := -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
+CFLAGS  := -O2 -Wall -mcpu=cell $(MACHDEP) -I$(PSL1GHT)/ppu/include -I$(PORTLIBS)/include
+LDFLAGS := $(MACHDEP) -L$(PSL1GHT)/ppu/lib -L$(PORTLIBS)/lib
+LIBS    := -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm
+
+all: $(TARGET).pkg
+
+main.o: main.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET).elf: main.o
+	$(CC) $(LDFLAGS) -o $@ $< $(LIBS)
+
+$(TARGET).pkg: $(TARGET).elf ICON0.PNG $(SFOXML)
+	rm -rf pkg
+	mkdir -p pkg/USRDIR
+	cp ICON0.PNG pkg/ICON0.PNG
+	$(PS3DEV)/bin/sprxlinker $(TARGET).elf
+	$(PS3DEV)/bin/make_self_npdrm $(TARGET).elf pkg/USRDIR/EBOOT.BIN $(CONTENTID)
+	$(PS3DEV)/bin/sfo.py --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) pkg/PARAM.SFO
+	$(PS3DEV)/bin/pkg.py --contentid $(CONTENTID) pkg/ $@
+
 clean:
-	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).self $(TARGET).self.npdrm EBOOT.BIN $(SFO_FILE) $(PKGF) $(PKGDIR)
-.PHONY: all pkg clean
+	rm -rf pkg *.o *.elf *.self *.pkg

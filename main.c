@@ -133,10 +133,10 @@ static void draw_circle(float cx, float cy, float diam, u32 col) {
 }
 
 static void draw_glow(float cx, float cy, float diam, u32 col) {
-    tiny3d_SetBlendMode(TINY3D_BLEND_FUNC_SRC_ALPHA, TINY3D_BLEND_FUNC_ONE);
+    tiny3d_SetBlendMode(0x0302, 0x0001);
     float r = diam * 0.5f;
     draw_quad(cx - r, cy - r, diam, diam, 0.0f, 0.0f, 1.0f, 1.0f, col, off_glow, 128, 128);
-    tiny3d_SetBlendMode(TINY3D_BLEND_FUNC_SRC_ALPHA, TINY3D_BLEND_FUNC_ONE_MINUS_SRC_ALPHA);
+    tiny3d_SetBlendMode(0x0302, 0x0303);
 }
 
 static void spawn_food(int idx, float x, float y, float rad) {
@@ -208,7 +208,7 @@ int main(int argc, const char *argv[]) {
     while (running) {
         sysUtilCheckCallback();
         ioPadGetInfo(&padinfo);
-        if (padinfo.status[0]) ioPadGetData(0, &paddata);
+        if (padinfo.status) ioPadGetData(0, &paddata);
 
         if (snakes[0].alive) {
             float lx = ((float)paddata.ANA_L_H - 128.0f) / 128.0f;
@@ -303,7 +303,7 @@ int main(int argc, const char *argv[]) {
         tiny3d_Clear(0xFF161C22, TINY3D_CLEAR_ALL);
         tiny3d_Project2D();
         tiny3d_AlphaTest(0, 0, TINY3D_ALPHA_FUNC_GEQUAL);
-        tiny3d_SetBlendMode(TINY3D_BLEND_FUNC_SRC_ALPHA, TINY3D_BLEND_FUNC_ONE_MINUS_SRC_ALPHA);
+        tiny3d_SetBlendMode(0x0302, 0x0303);
 
         float hw = VIRTUAL_W * 0.5f, hh = VIRTUAL_H * 0.5f;
         float vw = VIRTUAL_W / cam_zoom, vh = VIRTUAL_H / cam_zoom;

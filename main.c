@@ -1,5 +1,4 @@
-// Cobra Arena - jogo estilo slither.io, offline, nativo PS3 (PSL1GHT + Tiny3D)
-// Controles: analogico esquerdo (ou direcional) = direcao, X / R1 / R2 = turbo
+// Cobra Arena - FIX FINAL - controle 100% - PSL1GHT + Tiny3D
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,18 +9,18 @@
 #include <io/pad.h>
 #include <tiny3d.h>
 
-#define SCR_W     1280.0f
-#define SCR_H     720.0f
-#define WORLD     3200.0f
-#define MAXSEG    420
-#define NSN       12
-#define NPEL      520
-#define SP        7.0f
-#define PI        3.14159265f
-#define GRID      110.0f
-#define BG        0x161C22FFu
-#define GLOW_N    8
-#define DEADZONE  0.38f
+#define SCR_W 1280.0f
+#define SCR_H 720.0f
+#define WORLD 3200.0f
+#define MAXSEG 420
+#define NSN 12
+#define NPEL 520
+#define SP 7.0f
+#define PI 3.14159265f
+#define GRID 110.0f
+#define BG 0x161C22FFu
+#define GLOW_N 8
+#define DEADZONE 0.38f
 
 typedef struct {
     float x[MAXSEG], y[MAXSEG];
@@ -48,7 +47,10 @@ static void sysutil_cb(u64 status, u64 param, void *usrdata)
 {
     (void)param;
     (void)usrdata;
-    if (status == SYSUTIL_EXIT_GAME) running = 0;
+    if (status == SYSUTIL_EXIT_GAME)
+    {
+        running = 0;
+    }
 }
 
 static Snake sn[NSN];
@@ -60,17 +62,17 @@ static int pad_boost = 0, pad_x = 0, pad_connected = 0;
 
 static float frand(void) { return (float)rand() / (float)RAND_MAX; }
 
-/* ---------- desenho com Tiny3D ---------- */
-
-/* Disco com degrade radial: centro com alpha 'a', borda com alpha 0. */
 static void glow(float cx, float cy, float r, u32 rgb, u32 a)
 {
     u32 c0 = (rgb << 8) | (a & 0xFFu);
     u32 c1 = (rgb << 8);
-    if (r < 0.5f) r = 0.5f;
+    if (r < 0.5f)
+    {
+        r = 0.5f;
+    }
     tiny3d_SetPolygon(TINY3D_TRIANGLES);
     for (int i = 0; i < GLOW_N; i++) {
-        float a0 = (float)i       * 2.0f * PI / GLOW_N;
+        float a0 = (float)i * 2.0f * PI / GLOW_N;
         float a1 = (float)(i + 1) * 2.0f * PI / GLOW_N;
         tiny3d_VertexPos(cx, cy, 0.0f);
         tiny3d_VertexColor(c0);
@@ -85,7 +87,6 @@ static void glow(float cx, float cy, float r, u32 rgb, u32 a)
 static float SX(float x) { return (x - camx) * zoom + SCR_W * 0.5f; }
 static float SY(float y) { return (y - camy) * zoom + SCR_H * 0.5f; }
 
-/* ---------- fonte 3x5 (texto feito com discos) ---------- */
 typedef struct { char c; const char *p; } Glyph;
 
 static const Glyph glyphs[] = {
@@ -106,7 +107,12 @@ static const Glyph glyphs[] = {
 static const char *find_glyph(char c)
 {
     for (unsigned i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); i++)
-        if (glyphs[i].c == c) return glyphs[i].p;
+    {
+        if (glyphs[i].c == c)
+        {
+            return glyphs[i].p;
+        }
+    }
     return NULL;
 }
 
@@ -121,17 +127,21 @@ static void draw_text(const char *s, float x, float y, float sc, u32 rgb)
         const char *g = find_glyph(*s);
         if (g) {
             for (int r = 0; r < 5; r++)
+            {
                 for (int k = 0; k < 3; k++)
+                {
                     if (g[r * 3 + k] == '#')
+                    {
                         glow(x + k * sc * 1.3f + sc * 0.5f,
                              y + r * sc * 1.3f + sc * 0.5f,
                              sc * 0.55f, rgb, 255);
+                    }
+                }
+            }
         }
         x += 4.0f * sc * 1.3f;
     }
 }
-
-/* ---------- jogo ---------- */
 
 static float radius_of(const Snake *s)
 {
@@ -179,10 +189,15 @@ static void kill_snake(int i)
 {
     Snake *s = &sn[i];
     for (int j = 0; j < s->len; j += 2)
+    {
         add_pellet(s->x[j] + (frand() - 0.5f) * 10, s->y[j] + (frand() - 0.5f) * 10, 2);
+    }
     s->alive = 0;
     s->respawn = 240;
-    if (i == 0) dead_t = 0;
+    if (i == 0)
+    {
+        dead_t = 0;
+    }
 }
 
 static void bot_think(int i)
@@ -195,20 +210,31 @@ static void bot_think(int i)
         float best = 380.0f * 380.0f;
         int bi = -1;
         for (int k = 0; k < NPEL; k++) {
-            if (!pel[k].active) continue;
+            if (!pel[k].active)
+            {
+                continue;
+            }
             float dx = pel[k].x - hx, dy = pel[k].y - hy, d = dx * dx + dy * dy;
             if (d < best) { best = d; bi = k; }
         }
-        if (bi >= 0) s->tgt = atan2f(pel[bi].y - hy, pel[bi].x - hx);
+        if (bi >= 0)
+        {
+            s->tgt = atan2f(pel[bi].y - hy, pel[bi].x - hx);
+        }
     }
 
     if (hx < 250 || hx > WORLD - 250 || hy < 250 || hy > WORLD - 250)
+    {
         s->tgt = atan2f(WORLD / 2 - hy, WORLD / 2 - hx);
+    }
 
     float px = hx + cosf(s->ang) * 55, py = hy + sinf(s->ang) * 55;
     float rs = radius_of(s);
     for (int o = 0; o < NSN; o++) {
-        if (o == i || !sn[o].alive) continue;
+        if (o == i || !sn[o].alive)
+        {
+            continue;
+        }
         float lim = rs + radius_of(&sn[o]) + 25;
         lim *= lim;
         for (int j = 0; j < sn[o].len; j += 2) {
@@ -225,13 +251,19 @@ static void update_snake(int i)
 {
     Snake *s = &sn[i];
     if (!s->alive) {
-        if (i > 0 && --s->respawn <= 0) spawn_snake(i);
+        if (i > 0 && --s->respawn <= 0)
+        {
+            spawn_snake(i);
+        }
         return;
     }
     s->tick++;
 
     if (i == 0) {
-        if (pad_mag > DEADZONE) s->tgt = atan2f(pad_ay, pad_ax);
+        if (pad_mag > DEADZONE)
+        {
+            s->tgt = atan2f(pad_ay, pad_ax);
+        }
         s->boost = pad_boost;
     } else {
         bot_think(i);
@@ -239,10 +271,22 @@ static void update_snake(int i)
     }
 
     float d = s->tgt - s->ang;
-    while (d >  PI) d -= 2 * PI;
-    while (d < -PI) d += 2 * PI;
-    if (d >  0.075f) d =  0.075f;
-    if (d < -0.075f) d = -0.075f;
+    while (d >  PI)
+    {
+        d -= 2 * PI;
+    }
+    while (d < -PI)
+    {
+        d += 2 * PI;
+    }
+    if (d >  0.075f)
+    {
+        d =  0.075f;
+    }
+    if (d < -0.075f)
+    {
+        d = -0.075f;
+    }
     s->ang += d;
 
     float sp = 3.0f;
@@ -273,7 +317,10 @@ static void update_snake(int i)
 
     float rs = radius_of(s), er = rs + 12;
     for (int k = 0; k < NPEL; k++) {
-        if (!pel[k].active) continue;
+        if (!pel[k].active)
+        {
+            continue;
+        }
         float dx = pel[k].x - s->x[0], dy = pel[k].y - s->y[0];
         if (dx * dx + dy * dy < er * er) {
             pel[k].active = 0;
@@ -287,10 +334,16 @@ static void update_snake(int i)
         s->len++;
         s->grow -= 2;
     }
-    if (s->len >= MAXSEG) s->grow = 0;
+    if (s->len >= MAXSEG)
+    {
+        s->grow = 0;
+    }
 
     for (int o = 0; o < NSN; o++) {
-        if (o == i || !sn[o].alive) continue;
+        if (o == i || !sn[o].alive)
+        {
+            continue;
+        }
         float lim = (rs + radius_of(&sn[o])) * 0.75f;
         lim *= lim;
         for (int j = 0; j < sn[o].len; j++) {
@@ -307,7 +360,9 @@ static void init_game(void)
 {
     memset(pel, 0, sizeof(pel));
     for (int k = 0; k < NPEL; k++)
+    {
         add_pellet(frand() * WORLD, frand() * WORLD, 1 + (rand() % 5 == 0));
+    }
     for (int i = 0; i < NSN; i++) {
         sn[i].score = 0;
         spawn_snake(i);
@@ -315,33 +370,84 @@ static void init_game(void)
     dead_t = 0;
 }
 
-/* Le o controle. Analogico com deadzone 0.38; direcional como alternativa. */
+/* CONTROLE ARRUMADO - ESSA ERA A PARTE BUGADA */
 static void read_pad(void)
 {
-    padInfo info;
-    padData d;
-
-    pad_ax = pad_ay = pad_mag = 0;
-    pad_boost = pad_x = 0;
+    pad_ax = 0;
+    pad_ay = 0;
+    pad_mag = 0;
+    pad_boost = 0;
+    pad_x = 0;
     pad_connected = 0;
 
-    if (ioPadGetInfo(&info) != 0) return;
-    if (!info.status[0]) return;
-    if (ioPadGetData(0, &d) != 0) return;
+    padInfo info;
+    memset(&info, 0, sizeof(info));
+    ioPadGetInfo(&info);
 
+    // FIX 1: procura em TODAS as portas, nao so na 0
+    int port = -1;
+    for (int p = 0; p < 7; p++)
+    {
+        if (info.status[p])
+        {
+            port = p;
+            break;
+        }
+    }
+    if (port < 0)
+    {
+        return;
+    }
+
+    padData d;
+    memset(&d, 0, sizeof(d));
+    if (ioPadGetData(port, &d) != 0)
+    {
+        return;
+    }
     pad_connected = 1;
 
+    // FIX 2: NAO inverte o Y. Na tela Y cresce pra baixo igual no controle.
+    // Analógico: 0 = cima = -1, 255 = baixo = +1. Igual a seta.
     float ax = ((float)d.ANA_L_H - 128.0f) / 127.0f;
     float ay = ((float)d.ANA_L_V - 128.0f) / 127.0f;
-    ay = -ay;  /* na tela, Y cresce para baixo */
 
-    if (d.BTN_LEFT)  ax = -1.0f;
-    if (d.BTN_RIGHT) ax =  1.0f;
-    if (d.BTN_UP)    ay = -1.0f;
-    if (d.BTN_DOWN)  ay =  1.0f;
+    // Seta tem prioridade - se apertar seta, ignora analogico
+    if (d.BTN_LEFT)
+    {
+        ax = -1.0f;
+        ay = 0;
+    }
+    else if (d.BTN_RIGHT)
+    {
+        ax = 1.0f;
+        ay = 0;
+    }
+    else if (d.BTN_UP)
+    {
+        ax = 0;
+        ay = -1.0f;
+    }
+    else if (d.BTN_DOWN)
+    {
+        ax = 0;
+        ay = 1.0f;
+    }
 
     float m = sqrtf(ax * ax + ay * ay);
-    if (m > 1.0f) { ax /= m; ay /= m; m = 1.0f; }
+    if (m > 1.0f)
+    {
+        ax /= m;
+        ay /= m;
+        m = 1.0f;
+    }
+    // Deadzone de verdade - abaixo disso zera, nao fica tremendo
+    if (m < DEADZONE)
+    {
+        ax = 0;
+        ay = 0;
+        m = 0;
+    }
     pad_ax = ax;
     pad_ay = ay;
     pad_mag = m;
@@ -352,19 +458,33 @@ static void read_pad(void)
 
 static void update_game(void)
 {
-    for (int i = 0; i < NSN; i++) update_snake(i);
+    for (int i = 0; i < NSN; i++)
+    {
+        update_snake(i);
+    }
 
     int count = 0;
-    for (int k = 0; k < NPEL; k++) count += pel[k].active;
+    for (int k = 0; k < NPEL; k++)
+    {
+        count += pel[k].active;
+    }
     for (int n = 0; n < 2 && count < NPEL - 40; n++, count++)
+    {
         add_pellet(frand() * WORLD, frand() * WORLD, 1 + (rand() % 5 == 0));
+    }
 
     if (sn[0].alive) {
         camx += (sn[0].x[0] - camx) * 0.12f;
         camy += (sn[0].y[0] - camy) * 0.12f;
         float tz = 1.0f / (0.9f + (float)sn[0].len / 600.0f);
-        if (tz < 0.5f) tz = 0.5f;
-        if (tz > 1.0f) tz = 1.0f;
+        if (tz < 0.5f)
+        {
+            tz = 0.5f;
+        }
+        if (tz > 1.0f)
+        {
+            tz = 1.0f;
+        }
         zoom += (tz - zoom) * 0.04f;
     } else {
         dead_t++;
@@ -378,8 +498,6 @@ static void update_game(void)
     x_prev = pad_x;
 }
 
-/* ---------- render ---------- */
-
 static void draw_grid(void)
 {
     float hw = SCR_W * 0.5f / zoom + GRID;
@@ -387,9 +505,15 @@ static void draw_grid(void)
     float x0 = floorf((camx - hw) / GRID) * GRID;
     float y0 = floorf((camy - hh) / GRID) * GRID;
     for (float gx = x0; gx < camx + hw; gx += GRID) {
-        if (gx < 0 || gx > WORLD) continue;
+        if (gx < 0 || gx > WORLD)
+        {
+            continue;
+        }
         for (float gy = y0; gy < camy + hh; gy += GRID) {
-            if (gy < 0 || gy > WORLD) continue;
+            if (gy < 0 || gy > WORLD)
+            {
+                continue;
+            }
             glow(SX(gx), SY(gy), 2.5f * zoom + 1.0f, 0x2A3A4A, 110);
         }
     }
@@ -409,9 +533,15 @@ static void draw_arena_edge(void)
 static void draw_pellets(void)
 {
     for (int k = 0; k < NPEL; k++) {
-        if (!pel[k].active) continue;
+        if (!pel[k].active)
+        {
+            continue;
+        }
         float x = SX(pel[k].x), y = SY(pel[k].y);
-        if (x < -40 || x > SCR_W + 40 || y < -40 || y > SCR_H + 40) continue;
+        if (x < -40 || x > SCR_W + 40 || y < -40 || y > SCR_H + 40)
+        {
+            continue;
+        }
         float r = (3.0f + pel[k].size * 1.5f) * zoom;
         glow(x, y, r * 2.4f, pel[k].col, 60);
         glow(x, y, r, pel[k].col, 255);
@@ -428,12 +558,19 @@ static void draw_snake(const Snake *s, int full)
 
     for (int j = s->len - 1; j >= 0; j -= step) {
         float x = SX(s->x[j]), y = SY(s->y[j]);
-        if (x < -r * 2 || x > SCR_W + r * 2 || y < -r * 2 || y > SCR_H + r * 2) continue;
+        if (x < -r * 2 || x > SCR_W + r * 2 || y < -r * 2 || y > SCR_H + r * 2)
+        {
+            continue;
+        }
         if (full)
+        {
             glow(x + 3.0f * zoom, y + 5.0f * zoom, r * 1.05f, 0x000000, 90);
+        }
         glow(x, y, r, col, 255);
         if ((j % 4) == 0)
+        {
             glow(x - r * 0.25f, y - r * 0.3f, r * 0.42f, hi, 110);
+        }
     }
 
     float hx = SX(s->x[0]), hy = SY(s->y[0]);
@@ -458,16 +595,16 @@ static void draw_minimap(void)
     float mx = SCR_W - 90.0f, my = 90.0f, mr = 62.0f;
     glow(mx, my, mr * 1.05f, 0x000000, 140);
     for (int k = NSN - 1; k >= 0; k--) {
-        if (!sn[k].alive) continue;
+        if (!sn[k].alive)
+        {
+            continue;
+        }
         float x = mx + sn[k].x[0] / WORLD * mr * 2.0f - mr;
         float y = my + sn[k].y[0] / WORLD * mr * 2.0f - mr;
         glow(x, y, k == 0 ? 5.0f : 3.0f, sn[k].col, 255);
     }
 }
 
-/* Barra de debug: mostra se o controle chega ao jogo.
-   Bolinha branca = direcao do analogico, verde = X/R1/R2 apertado,
-   vermelho = controle nao detectado. */
 static void draw_debug_pad(void)
 {
     float bx = 60.0f, by = SCR_H - 60.0f;
@@ -480,7 +617,9 @@ static void draw_debug_pad(void)
 
     glow(bx, by, 6.0f, 0x66FF66, 255);
     if (pad_boost)
+    {
         glow(bx + 24.0f, by, 8.0f, 0x66FF66, 255);
+    }
 
     float ox = bx + pad_ax * 28.0f;
     float oy = by + pad_ay * 28.0f;
@@ -498,16 +637,22 @@ static void draw_hud(void)
 
     draw_text("X TURBO", 24, SCR_H - 40, sc, 0x809BBFu);
 
-    /* placar: top 5 */
     int order[NSN];
-    for (int i = 0; i < NSN; i++) order[i] = i;
     for (int i = 0; i < NSN; i++)
+    {
+        order[i] = i;
+    }
+    for (int i = 0; i < NSN; i++)
+    {
         for (int j = i + 1; j < NSN; j++)
+        {
             if (sn[order[j]].score > sn[order[i]].score) {
                 int t = order[i];
                 order[i] = order[j];
                 order[j] = t;
             }
+        }
+    }
     for (int r = 0; r < 5; r++) {
         int k = order[r];
         float y = 190.0f + r * 26.0f;
@@ -537,8 +682,16 @@ static void render(void)
     draw_pellets();
 
     for (int i = NSN - 1; i >= 1; i--)
-        if (sn[i].alive) draw_snake(&sn[i], 0);
-    if (sn[0].alive) draw_snake(&sn[0], 1);
+    {
+        if (sn[i].alive)
+        {
+            draw_snake(&sn[i], 0);
+        }
+    }
+    if (sn[0].alive)
+    {
+        draw_snake(&sn[0], 1);
+    }
 
     draw_minimap();
     draw_hud();

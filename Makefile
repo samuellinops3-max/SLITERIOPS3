@@ -1,40 +1,45 @@
-TARGET := neon_coil
+ifeq ($(strip $(PSL1GHT)),)
+$(error "PSL1GHT is not set")
+endif
+include $(PSL1GHT)/ppu_rules
+TARGET := SlitherPS3
+TITLE := Slither.io PS3
+APPID := SLIT00001
+CONTENTID := UP0001-$(APPID)_00-0000000000000000
 BUILD := build
 SOURCES := .
-INCLUDES :=
-
-CFLAGS += -O2 -Wall -Wextra -std=gnu99
-CFLAGS += -D__PS3__
-
-LIBS += -lSDL -lm
-
-include $(PSL1GHT)/ppu_rules
-
-APPID := NCAR00001
-CONTENTID := UP0001-NCAR00001_00-NEONCOILARENA001
-
+SFO_XML := sfo.xml
+SFO_FILE := PARAM.SFO
+INCLUDES := -I$(PSL1GHT)/ppu/include/SDL
+CFLAGS := -O2 -Wall -mcpu=cell -mhard-float -I$(PSL1GHT)/ppu/include $(INCLUDES)
+LDFLAGS := -L$(PSL1GHT)/ppu/lib -L$(PORTLIBS)/lib
+LIBS := -lSDL -lSDL_ttf -lSDL_image -lm -lfreetype -lpng -ljpeg -lz -laudio -lio -lrsx -lgcm_sys -lsysutil -lsysmodule -lnet -lnetctl
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+OFILES := $(CFILES:.c=.o)
+OFILES := $(OFILES:%=$(BUILD)/%)
 PKGDIR := pkg
-ICON := $(PKGDIR)/ICON0.PNG
-
-.PHONY: all icon pkg clean
-
-all: $(TARGET).self
-
-icon:
-	mkdir -p $(PKGDIR)/USRDIR
-	python3 tools/make_icon.py $(ICON)
-
-pkg: $(TARGET).self icon
-	cp $(TARGET).self $(PKGDIR)/USRDIR/EBOOT.BIN
-	cp sfo.xml $(PKGDIR)/PARAM.SFO.xml
-
-	$(PSL1GHT)/tools/bin/pkg.py \
-		--contentid $(CONTENTID) \
-		--type 1 \
-		--package_version 01.00 \
-		--file $(PKGDIR)/USRDIR/EBOOT.BIN=/USRDIR/EBOOT.BIN \
-		--file $(ICON)=/ICON0.PNG \
-		--output $(TARGET).pkg
-
+PKGF := $(TARGET).pkg
+all: $(TARGET).elf $(TARGET).self EBOOT.BIN $(SFO_FILE)
+$(TARGET).elf: $(OFILES)
+	@$(CC) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
+$(TARGET).self: $(TARGET).elf
+	@$(SELF) $< $@
+EBOOT.BIN: $(TARGET).self
+	@$(SELF) --npdrm --encrypt $< $@
+	@cp $@ $(TARGET).self.npdrm
+$(SFO_FILE): $(SFO_XML)
+	@$(SFO) --sfo $(SFO_XML) -f $@
+pkg: EBOOT.BIN $(SFO_FILE)
+	@rm -rf $(PKGDIR)
+	@mkdir -p $(PKGDIR)/USRDIR
+	@mkdir -p $(PKGDIR)/META
+	@cp EBOOT.BIN $(PKGDIR)/USRDIR/EBOOT.BIN
+	@cp $(SFO_FILE) $(PKGDIR)/PARAM.SFO
+	@echo "$(CONTENTID)" > $(PKGDIR)/META/PACKAGE_ID
+	@$(PKG) --contentid $(CONTENTID) $(PKGDIR)/ $(PKGF)
+$(BUILD)/%.o: %.c
+	@mkdir -p $(BUILD)
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 clean:
-	rm -rf $(BUILD) $(TARGET).elf $(TARGET).self $(TARGET).pkg $(PKGDIR)
+	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).self $(TARGET).self.npdrm EBOOT.BIN $(SFO_FILE) $(PKGF) $(PKGDIR)
+.PHONY: all pkg clean

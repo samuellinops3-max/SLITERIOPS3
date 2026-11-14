@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<params>
-    <TITLE>NEON COIL ARENA</TITLE>
-    <TITLE_ID>NCAR00001</TITLE_ID>
-    <CATEGORY>DG</CATEGORY>
-    <APP_VER>01.00</APP_VER>
-    <VERSION>01.00</VERSION>
-    <PS3_SYSTEM_VER>04.0000</PS3_SYSTEM_VER>
-    <ATTRIBUTE>0</ATTRIBUTE>
-    <BOOTABLE>true</BOOTABLE>
-</params>
+<sfo>
+  <param name="TITLE" type="str">Slither.io PS3</param>
+  <param name="TITLE_ID" type="str">SLIT00001</param>
+  <param name="CATEGORY" type="str">HG</param>
+  <param name="VERSION" type="str">01.00</param>
+  <param name="APP_VER" type="str">01.00</param>
+  <param name="PARENTAL_LEVEL" type="int">1</param>
+  <param name="RESOLUTION" type="int">0</param>
+  <param name="SOUND_FORMAT" type="int">0</param>
+  <param name="BOOTABLE" type="int">1</param>
+</sfo>

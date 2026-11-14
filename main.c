@@ -1,4 +1,4 @@
-// Cobra Arena v6 - bots inteligentes, nao giram parado
+// Cobra Arena v7 - tudo arrumado, compila direto
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,11 +28,17 @@ static void present(void){if(!first_flip)wait_flip();else gcmResetFlipStatus();m
 static void fill_rect(int x,int y,int w,int h,u32 c){int x0=x<0?0:x,y0=y<0?0:y,x1=x+w,y1=y+h;if(x1>(int)W)x1=W;if(y1>(int)H)y1=H;for(int yy=y0;yy<y1;yy++){u32 *p=back+yy*W;for(int xx=x0;xx<x1;xx++)p[xx]=c;}}
 static void circle(int cx,int cy,int r,u32 c){if(r<1)r=1;if(cx+r<0||cx-r>=(int)W||cy+r<0||cy-r>=(int)H)return;for(int dy=-r;dy<=r;dy++){int y=cy+dy;if(y<0||y>=(int)H)continue;int hw=(int)sqrtf((float)(r*r-dy*dy));int x0=cx-hw,x1=cx+hw;if(x0<0)x0=0;if(x1>=(int)W)x1=W-1;u32 *p=back+y*W;for(int x=x0;x<=x1;x++)p[x]=c;}}
 typedef struct{char c;const char *p;}Glyph;
-static const Glyph glyphs[]={{'A',".#."."#.#"."###"."#.#"."#.#"},{'P',"###"."#.#"."###"."#.."."#.."},{'E',"###"."#.."."###"."#.."."###"},{'R',"##."."#.#"."##."."#.#"."#.#"},{'T',"###".".#.".".#.".".#.".".#."},{'X',"#.#"."#.#".".#."."#.#"."#.#"},{' ', "   ""   ""   ""   ""   "}};
+static const Glyph glyphs[]={
+{'A',".#." "#.#" "###" "#.#" "#.#"},
+{'P',"###" "#.#" "###" "#.." "#.."},
+{'E',"###" "#.." "###" "#.." "###"},
+{'R',"##." "#.#" "##." "#.#" "#.#"},
+{'T',"###" ".#." ".#." ".#." ".#."},
+{'X',"#.#" "#.#" ".#." "#.#" "#.#"},
+{' ',"   " "   " "   " "   " "   "}};
 static const char *find_glyph(char c){for(unsigned i=0;i<sizeof(glyphs)/sizeof(glyphs[0]);i++)if(glyphs[i].c==c)return glyphs[i].p;return glyphs[6].p;}
 static void draw_text(const char *s,int x,int y,int sc,u32 c){for(;*s;s++){const char *g=find_glyph(*s);for(int r=0;r<5;r++)for(int k=0;k<3;k++)if(g[r*3+k]=='#')fill_rect(x+k*sc,y+r*sc,sc,sc,c);x+=4*sc;}}
 static Snake sn[NSN];static Pellet pel[NPEL];static int pelrot=0,dead_t=0,x_prev=0;static float camx=WORLD/2,camy=WORLD/2;static float pad_ax=0,pad_ay=0,pad_mag=0;static int pad_boost=0,pad_x=0,pad_x_pressed=0;
-// Memoria do bot - pra nao ficar trocando de alvo toda hora
 static float bot_tx[NSN],bot_ty[NSN];static int bot_timer[NSN],bot_side[NSN];static float bot_lastx[NSN],bot_lasty[NSN];static int bot_stuck[NSN];
 static float frand(void){return (float)rand()/(float)RAND_MAX;}
 static u32 random_color(void){int h=rand()%360;float s=0.85f,v=1.0f;float c=v*s;float x=c*(1-fabsf(fmodf(h/60.0f,2)-1));float m=v-c;float r=0,g=0,b=0;if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}return ((u32)((r+m)*255)<<16)|((u32)((g+m)*255)<<8)|((u32)((b+m)*255));}
@@ -40,21 +46,16 @@ static float radius_of(const Snake *s){int l=s->len>240?240:s->len;return 13.0f+
 static void add_pellet(float x,float y,int size){for(int k=0;k<NPEL;k++){int i=(pelrot+k)%NPEL;if(!pel[i].active){pel[i].x=x;pel[i].y=y;pel[i].size=size;pel[i].active=1;pel[i].col=random_color();pelrot=(i+1)%NPEL;return;}}}
 static void spawn_snake(int i){Snake *s=&sn[i];float x=400+frand()*(WORLD-800),y=400+frand()*(WORLD-800);s->ang=frand()*2*PI;s->tgt=s->ang;s->len=22;for(int j=0;j<s->len;j++){s->x[j]=x-cosf(s->ang)*SP*j;s->y[j]=y-sinf(s->ang)*SP*j;}s->alive=1;s->respawn=0;s->boost=0;s->grow=0;s->tick=0;s->col=random_color();bot_tx[i]=x+300;bot_ty[i]=y;bot_timer[i]=0;bot_side[i]=(rand()%2)?1:-1;bot_lastx[i]=x;bot_lasty[i]=y;bot_stuck[i]=0;}
 static void kill_snake(int i){Snake *s=&sn[i];for(int j=0;j<s->len;j+=2)add_pellet(s->x[j]+(frand()-0.5f)*10,s->y[j]+(frand()-0.5f)*10,2);s->alive=0;s->respawn=240;if(i==0)dead_t=0;}
-// BOT NOVO - pensa devagar, anda reto, desvia de lado, nao gira
 static void bot_think(int i){
 Snake *s=&sn[i];float hx=s->x[0],hy=s->y[0];
-// 1. Detecta se travou girando - se nao andou 30px em 60 frames, foge
 if(s->tick%60==0){float dx=hx-bot_lastx[i],dy=hy-bot_lasty[i];if(dx*dx+dy*dy<900){bot_stuck[i]++;s->tgt=s->ang+2.0f*bot_side[i];bot_timer[i]=0;bot_tx[i]=WORLD/2;bot_ty[i]=WORLD/2;}else bot_stuck[i]=0;bot_lastx[i]=hx;bot_lasty[i]=hy;}
-// 2. Escolhe comida nova SO quando acabou o tempo ou chegou perto
 bot_timer[i]--;float dtx=bot_tx[i]-hx,dty=bot_ty[i]-hy;
 if(bot_timer[i]<=0||dtx*dtx+dty*dty<40*40){
 float best=1e9f;int bi=-1;for(int k=0;k<NPEL;k++){if(!pel[k].active)continue;float dx=pel[k].x-hx,dy=pel[k].y-hy;float d=dx*dx+dy*dy;if(d<best){best=d;bi=k;}}
 if(bi>=0){bot_tx[i]=pel[bi].x;bot_ty[i]=pel[bi].y;}else{bot_tx[i]=400+frand()*(WORLD-800);bot_ty[i]=400+frand()*(WORLD-800);}
 bot_timer[i]=180+rand()%120;}
 float target=atan2f(bot_ty[i]-hy,bot_tx[i]-hx);
-// 3. Parede - desvia suave pro centro, nao vira de uma vez
 if(hx<300||hx>WORLD-300||hy<300||hy>WORLD-300){target=atan2f(WORLD/2-hy,WORLD/2-hx);bot_timer[i]=0;}
-// 4. Desvio de cobra - olha 80px na frente, vira de lado e SEGURA o lado
 float px=hx+cosf(s->ang)*90,py=hy+sinf(s->ang)*90;float rs=radius_of(s);int danger=0;float side_sign=0;
 for(int o=0;o<NSN;o++){if(o==i||!sn[o].alive)continue;float lim=(rs+radius_of(&sn[o])+20);lim*=lim;for(int j=0;j<sn[o].len;j+=3){float dx=sn[o].x[j]-px,dy=sn[o].y[j]-py;if(dx*dx+dy*dy<lim){danger=1;float cross=cosf(s->ang)*dy-sinf(s->ang)*dx;side_sign=(cross>0)?-1:1;break;}if(danger)break;}if(danger)break;}
 if(danger){target=s->ang+0.9f*side_sign;bot_side[i]=(int)side_sign;}

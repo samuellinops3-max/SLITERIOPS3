@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sfo>
-  <param name="TITLE" type="str">Slither.io PS3</param>
-  <param name="TITLE_ID" type="str">SLIT00001</param>
-  <param name="CATEGORY" type="str">HG</param>
-  <param name="VERSION" type="str">01.00</param>
-  <param name="APP_VER" type="str">01.00</param>
-  <param name="PARENTAL_LEVEL" type="int">1</param>
-  <param name="RESOLUTION" type="int">0</param>
-  <param name="SOUND_FORMAT" type="int">0</param>
-  <param name="BOOTABLE" type="int">1</param>
+  <value name="APP_VER" type="string">01.00</value>
+  <value name="ATTRIBUTE" type="integer">0</value>
+  <value name="BOOTABLE" type="integer">1</value>
+  <value name="CATEGORY" type="string">HG</value>
+  <value name="LICENSE" type="string">Homebrew</value>
+  <value name="PARENTAL_LEVEL" type="integer">1</value>
+  <value name="PS3_SYSTEM_VER" type="string">00.0000</value>
+  <value name="RESOLUTION" type="integer">63</value>
+  <value name="SOUND_FORMAT" type="integer">1</value>
+  <value name="TITLE" type="string">Cobra Arena</value>
+  <value name="TITLE_ID" type="string">COBR00001</value>
+  <value name="VERSION" type="string">01.00</value>
 </sfo>

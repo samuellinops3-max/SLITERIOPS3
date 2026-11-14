@@ -1,97 +1,76 @@
-/* main.c - Cobra Arena (base jogável) - PSL1GHT + Tiny3D
- * VERIFICAR: nomes dos campos do padData e assinaturas do tiny3d.h */
-
-#include <stdint.h>
+// Cobra Arena - jogo estilo slither.io, offline, nativo PS3 (PSL1GHT + Tiny3D)
+// Controles: analogico esquerdo (ou direcional) = direcao, X / R1 / R2 = turbo
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
+#include <unistd.h>
+#include <ppu-types.h>
 #include <sysutil/sysutil.h>
 #include <io/pad.h>
 #include <tiny3d.h>
 
-#define SCR_W     1280.0f
-#define SCR_H     720.0f
-#define WORLD     2600.0f
-#define NSNAKES   14
-#define MAX_BODY  260
-#define MAX_PEL   600
-#define SEG       8.0f
-#define DEADZONE  0.38f
-#define BG_COLOR  0x161C22FFu
-#define PI_F      3.14159265f
-#define GRID      150.0f
+#define SCR_W   1280.0f
+#define SCR_H   720.0f
+#define WORLD   3200.0f
+#define MAXSEG  420
+#define NSN     12
+#define NPEL    520
+#define SP      7.0f
+#define PI      3.14159265f
+#define GRID    110.0f
+#define BG      0x161C22FFu
+#define GLOW_N  8
 
 typedef struct {
-    float    x, y;
-    uint32_t rgb;
-    int      on;
-    float    ph;
-} Pellet;
-
-typedef struct {
-    float    hx, hy, ang;
-    float    bx[MAX_BODY], by[MAX_BODY];
-    int      len, alive, is_player, score, turbo;
-    float    tacc, wander_t, wander_ang, respawn_t;
-    uint32_t col;
+    float x[MAXSEG], y[MAXSEG];
+    int len, alive, respawn, boost, grow, score, tick;
+    float ang, tgt;
+    u32 col;
 } Snake;
 
-static Snake  snakes[NSNAKES];
-static Pellet pel[MAX_PEL];
-static volatile int g_exit = 0;
-static float camx = 0.0f, camy = 0.0f, zoom = 1.0f;
-static uint32_t rng_state = 2463534242u;
+typedef struct {
+    float x, y;
+    int size, active;
+    u32 col;
+} Pellet;
 
-static const uint32_t palette[NSNAKES] = {
-    0x58FFB0, 0x3BD6FF, 0xA6FF3B, 0xFFD23B, 0xB23BFF, 0x3BFFB2, 0xFF8A3B,
-    0x3B7BFF, 0xFF3BE0, 0x7CFF3B, 0x3BFFFF, 0xFFFF3B, 0xFF6B6B, 0x6BA8FF
+static const u32 palette[8] = {
+    0x00FF4D4D, 0x0055D6FF, 0x0066FF66, 0x00FFD23F,
+    0x00C77DFF, 0x00FF8FAB, 0x0000E5C0, 0x00FF9F43
 };
 
-/* ---------- utilitários ---------- */
+static volatile int running = 1;
+static float zoom = 1.0f;
 
-static float frand(void)
+static void sysutil_cb(u64 status, u64 param, void *usrdata)
 {
-    rng_state = rng_state * 1664525u + 1013904223u;
-    return (float)(rng_state >> 8) / 16777216.0f;
+    (void)param;
+    (void)usrdata;
+    if (status == SYSUTIL_EXIT_GAME) running = 0;
 }
 
-static float frange(float a, float b)
+static Snake sn[NSN];
+static Pellet pel[NPEL];
+static int pelrot = 0, dead_t = 0, x_prev = 0;
+static float camx = WORLD / 2, camy = WORLD / 2;
+static float pad_ax = 0, pad_ay = 0, pad_mag = 0;
+static int pad_boost = 0, pad_x = 0;
+
+static float frand(void) { return (float)rand() / (float)RAND_MAX; }
+
+/* ---------- desenho com Tiny3D ---------- */
+
+/* Disco com degrade radial: centro com alpha 'a', borda com alpha 0. */
+static void glow(float cx, float cy, float r, u32 rgb, u32 a)
 {
-    return a + (b - a) * frand();
-}
-
-static float angdiff(float from, float to)
-{
-    float d = to - from;
-    while (d >  PI_F) d -= 2.0f * PI_F;
-    while (d < -PI_F) d += 2.0f * PI_F;
-    return d;
-}
-
-static uint32_t lighten(uint32_t c)
-{
-    uint32_t r = (c >> 16) & 255u, g = (c >> 8) & 255u, b = c & 255u;
-    r += (255u - r) / 2u;
-    g += (255u - g) / 2u;
-    b += (255u - b) / 2u;
-    return (r << 16) | (g << 8) | b;
-}
-
-static float sx(float x) { return (x - camx) * zoom + SCR_W * 0.5f; }
-static float sy(float y) { return (y - camy) * zoom + SCR_H * 0.5f; }
-
-/* ---------- desenho ---------- */
-
-/* Disco com degradê radial: centro com alpha 'a', borda com alpha 0.
- * VERIFICAR: sem tiny3d_SetBlend/alpha blending ativado, a borda fica dura. */
-static void glow(float cx, float cy, float r, uint32_t rgb, uint32_t a)
-{
-    const int N = 10;
-    uint32_t c0 = (rgb << 8) | (a & 255u);
-    uint32_t c1 = (rgb << 8);
+    u32 c0 = (rgb << 8) | (a & 0xFFu);
+    u32 c1 = (rgb << 8);
+    if (r < 0.5f) r = 0.5f;
     tiny3d_SetPolygon(TINY3D_TRIANGLES);
-    for (int i = 0; i < N; i++) {
-        float a0 = (float)i       * 2.0f * PI_F / N;
-        float a1 = (float)(i + 1) * 2.0f * PI_F / N;
+    for (int i = 0; i < GLOW_N; i++) {
+        float a0 = (float)i       * 2.0f * PI / GLOW_N;
+        float a1 = (float)(i + 1) * 2.0f * PI / GLOW_N;
         tiny3d_VertexPos(cx, cy, 0.0f);
         tiny3d_VertexColor(c0);
         tiny3d_VertexPos(cx + cosf(a0) * r, cy + sinf(a0) * r, 0.0f);
@@ -102,399 +81,446 @@ static void glow(float cx, float cy, float r, uint32_t rgb, uint32_t a)
     tiny3d_End();
 }
 
-static void draw_grid(void)
-{
-    float hw = SCR_W * 0.5f / zoom + GRID;
-    float hh = SCR_H * 0.5f / zoom + GRID;
-    float rowh = GRID * 0.866f;
-    int j0 = (int)floorf((camy - hh) / rowh);
-    int j1 = (int)floorf((camy + hh) / rowh);
+static float SX(float x) { return (x - camx) * zoom + SCR_W * 0.5f; }
+static float SY(float y) { return (y - camy) * zoom + SCR_H * 0.5f; }
 
-    for (int j = j0; j <= j1; j++) {
-        float off = (j & 1) ? GRID * 0.5f : 0.0f;
-        float wy = (float)j * rowh;
-        int i0 = (int)floorf((camx - hw - off) / GRID);
-        int i1 = (int)floorf((camx + hw - off) / GRID);
-        for (int i = i0; i <= i1; i++) {
-            float wx = (float)i * GRID + off;
-            if (wx * wx + wy * wy > WORLD * WORLD * 1.05f) continue;
-            glow(sx(wx), sy(wy), 2.2f * zoom + 1.0f, 0x2A3A4A, 90);
+/* ---------- fonte 3x5 (texto feito com discos) ---------- */
+typedef struct { char c; const char *p; } Glyph;
+
+static const Glyph glyphs[] = {
+    {'0', "###" "#.#" "#.#" "#.#" "###"}, {'1', ".#." "##." ".#." ".#." "###"},
+    {'2', "###" "..#" "###" "#.." "###"}, {'3', "###" "..#" "###" "..#" "###"},
+    {'4', "#.#" "#.#" "###" "..#" "..#"}, {'5', "###" "#.." "###" "..#" "###"},
+    {'6', "###" "#.." "###" "#.#" "###"}, {'7', "###" "..#" "..#" "..#" "..#"},
+    {'8', "###" "#.#" "###" "#.#" "###"}, {'9', "###" "#.#" "###" "..#" "###"},
+    {'A', ".#." "#.#" "###" "#.#" "#.#"}, {'B', "##." "#.#" "##." "#.#" "##."},
+    {'C', "###" "#.." "#.." "#.." "###"}, {'E', "###" "#.." "###" "#.." "###"},
+    {'G', "###" "#.." "#.#" "#.#" "###"}, {'M', "#.#" "###" "###" "#.#" "#.#"},
+    {'O', "###" "#.#" "#.#" "#.#" "###"}, {'P', "###" "#.#" "###" "#.." "#.."},
+    {'R', "##." "#.#" "##." "#.#" "#.#"}, {'S', "###" "#.." "###" "..#" "###"},
+    {'T', "###" ".#." ".#." ".#." ".#."}, {'U', "#.#" "#.#" "#.#" "#.#" "###"},
+    {'V', "#.#" "#.#" "#.#" "#.#" ".#."}, {'X', "#.#" "#.#" ".#." "#.#" "#.#"},
+};
+
+static const char *find_glyph(char c)
+{
+    for (unsigned i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); i++)
+        if (glyphs[i].c == c) return glyphs[i].p;
+    return NULL;
+}
+
+static float text_width(const char *s, float sc)
+{
+    return (float)strlen(s) * 4.0f * sc * 1.3f;
+}
+
+static void draw_text(const char *s, float x, float y, float sc, u32 rgb)
+{
+    for (; *s; s++) {
+        const char *g = find_glyph(*s);
+        if (g) {
+            for (int r = 0; r < 5; r++)
+                for (int k = 0; k < 3; k++)
+                    if (g[r * 3 + k] == '#')
+                        glow(x + k * sc * 1.3f + sc * 0.5f,
+                             y + r * sc * 1.3f + sc * 0.5f,
+                             sc * 0.55f, rgb, 255);
         }
-    }
-}
-
-static void draw_arena(void)
-{
-    for (int i = 0; i < 72; i++) {
-        float a = (float)i * 2.0f * PI_F / 72.0f;
-        glow(sx(cosf(a) * WORLD), sy(sinf(a) * WORLD), 9.0f * zoom, 0xFF3355, 230);
-    }
-}
-
-static void draw_pellets(void)
-{
-    for (int p = 0; p < MAX_PEL; p++) {
-        if (!pel[p].on) continue;
-        float x = sx(pel[p].x), y = sy(pel[p].y);
-        if (x < -60 || x > SCR_W + 60 || y < -60 || y > SCR_H + 60) continue;
-        pel[p].ph += 0.12f;
-        float r = 8.0f * zoom * (1.0f + 0.22f * sinf(pel[p].ph));
-        glow(x, y, r * 2.6f, pel[p].rgb, 60);
-        glow(x, y, r,        pel[p].rgb, 255);
-        glow(x, y, r * 0.4f, 0xFFFFFF,   255);
-    }
-}
-
-static void draw_snake(Snake *s, int full_detail)
-{
-    float R = 10.0f + s->len * 0.02f;
-    if (R > 20.0f) R = 20.0f;
-    float r = R * zoom;
-    int step = full_detail ? 1 : 2;
-
-    /* corpo: do rabo para a cabeça, com sombra e highlight */
-    for (int i = s->len - 1; i >= 0; i -= step) {
-        float x = sx(s->bx[i]), y = sy(s->by[i]);
-        if (full_detail)
-            glow(x + 3.0f * zoom, y + 5.0f * zoom, r * 1.05f, 0x000000, 90);
-        glow(x, y, r, (uint32_t)s->col, 255);
-        glow(x - r * 0.25f, y - r * 0.3f, r * 0.45f, lighten(s->col), 120);
-    }
-
-    /* cabeça */
-    float hx = sx(s->hx), hy = sy(s->hy);
-    float hr = r * 1.15f;
-    glow(hx + 3.0f * zoom, hy + 5.0f * zoom, hr * 1.05f, 0x000000, 90);
-    glow(hx, hy, hr, (uint32_t)s->col, 255);
-    glow(hx - hr * 0.2f, hy - hr * 0.3f, hr * 0.4f, lighten(s->col), 140);
-
-    /* olhos */
-    float fx = cosf(s->ang), fy = sinf(s->ang);
-    float px = -fy, py = fx;
-    float ex = hx + fx * hr * 0.4f, ey = hy + fy * hr * 0.4f;
-    glow(ex + px * hr * 0.45f, ey + py * hr * 0.45f, hr * 0.22f, 0xFFFFFF, 255);
-    glow(ex - px * hr * 0.45f, ey - py * hr * 0.45f, hr * 0.22f, 0xFFFFFF, 255);
-}
-
-static void draw_minimap(void)
-{
-    float mx = SCR_W - 95.0f, my = 95.0f, mr = 70.0f;
-    glow(mx, my, mr * 1.05f, 0x000000, 140);
-    for (int k = NSNAKES - 1; k >= 0; k--) {
-        Snake *s = &snakes[k];
-        if (!s->alive) continue;
-        float x = mx + s->hx / WORLD * mr;
-        float y = my + s->hy / WORLD * mr;
-        glow(x, y, k == 0 ? 5.0f : 3.0f, s->col, 255);
-    }
-}
-
-/* ---------- entrada ---------- */
-
-static void read_input(float *mx, float *my, int *moving, int *boost, int *cross)
-{
-    padInfo info;
-    padData d;
-
-    *mx = *my = 0.0f;
-    *moving = *boost = *cross = 0;
-
-    if (ioPadGetInfo(&info) != 0) return;
-    if (!info.status[0])          return;
-    if (ioPadGetData(0, &d) != 0) return;
-
-    /* VERIFICAR nomes dos campos em io/pad.h */
-    float lx = ((float)d.ANA_L_H - 128.0f) / 127.0f;
-    float ly = -((float)d.ANA_L_V - 128.0f) / 127.0f;
-    float m = sqrtf(lx * lx + ly * ly);
-    if (m > DEADZONE) {
-        *mx = lx / m;
-        *my = ly / m;
-        *moving = 1;
-    }
-
-    /* R2 digital aqui: a pressão >80 precisa de campo analógico (VERIFICAR) */
-    *cross = d.BTN_CROSS ? 1 : 0;
-    *boost = (d.BTN_CROSS || d.BTN_R2) ? 1 : 0;
-}
-
-/* ---------- mundo ---------- */
-
-static void drop_pel(float x, float y, uint32_t rgb)
-{
-    for (int i = 0; i < MAX_PEL; i++) {
-        if (!pel[i].on) {
-            pel[i].on = 1;
-            pel[i].x = x;
-            pel[i].y = y;
-            pel[i].rgb = rgb;
-            return;
-        }
-    }
-}
-
-static void spawn_pel_random(int i)
-{
-    float a = frange(0.0f, 2.0f * PI_F);
-    float r = WORLD * 0.95f * sqrtf(frand());
-    pel[i].x = cosf(a) * r;
-    pel[i].y = sinf(a) * r;
-    pel[i].rgb = palette[rng_state % NSNAKES];
-    pel[i].on = 1;
-    pel[i].ph = frange(0.0f, 6.28f);
-}
-
-static void spawn(Snake *s, int player)
-{
-    float a = frange(0.0f, 2.0f * PI_F);
-    float r = WORLD * 0.6f * sqrtf(frand());
-    s->hx = cosf(a) * r;
-    s->hy = sinf(a) * r;
-    s->ang = frange(-PI_F, PI_F);
-    s->len = 6;
-    s->alive = 1;
-    s->is_player = player;
-    s->score = 0;
-    s->turbo = 0;
-    s->tacc = 0.0f;
-    s->wander_t = 0.0f;
-    s->wander_ang = s->ang;
-    s->respawn_t = 0.0f;
-    for (int i = 0; i < s->len; i++) {
-        s->bx[i] = s->hx - cosf(s->ang) * SEG * (float)(i + 1);
-        s->by[i] = s->hy - sinf(s->ang) * SEG * (float)(i + 1);
-    }
-}
-
-static void grow(Snake *s)
-{
-    if (s->len >= MAX_BODY) return;
-    int i = s->len;
-    s->bx[i] = (i > 0) ? s->bx[i - 1] : s->hx;
-    s->by[i] = (i > 0) ? s->by[i - 1] : s->hy;
-    s->len++;
-}
-
-static void kill_snake(Snake *s)
-{
-    if (!s->alive) return;
-    s->alive = 0;
-    for (int i = 0; i < s->len; i += 2)
-        drop_pel(s->bx[i], s->by[i], s->col);
-    drop_pel(s->hx, s->hy, s->col);
-    if (!s->is_player)
-        s->respawn_t = 2.5f;
-}
-
-/* Alvo do bot: parede > corpo > comida > vagar */
-static float bot_target(Snake *s)
-{
-    float r = sqrtf(s->hx * s->hx + s->hy * s->hy);
-    if (r > WORLD * 0.85f)
-        return atan2f(-s->hy, -s->hx);
-
-    float fx = cosf(s->ang), fy = sinf(s->ang);
-    for (int k = 0; k < NSNAKES; k++) {
-        Snake *o = &snakes[k];
-        if (!o->alive) continue;
-        for (int i = 0; i < o->len; i += 2) {
-            if (o == s && i < 12) continue;
-            float dx = o->bx[i] - s->hx, dy = o->by[i] - s->hy;
-            if (dx * dx + dy * dy < 80.0f * 80.0f && dx * fx + dy * fy > 0.0f) {
-                float side = dx * fy - dy * fx;
-                return s->ang + (side > 0.0f ? -1.4f : 1.4f);
-            }
-        }
-    }
-
-    float best = 380.0f * 380.0f, tx = 0.0f, ty = 0.0f;
-    int found = 0;
-    for (int p = 0; p < MAX_PEL; p++) {
-        if (!pel[p].on) continue;
-        float dx = pel[p].x - s->hx, dy = pel[p].y - s->hy;
-        float d2 = dx * dx + dy * dy;
-        if (d2 < best) { best = d2; tx = pel[p].x; ty = pel[p].y; found = 1; }
-    }
-    if (found) return atan2f(ty - s->hy, tx - s->hx);
-
-    s->wander_t -= 1.0f / 60.0f;
-    if (s->wander_t <= 0.0f) {
-        s->wander_t = frange(1.0f, 3.0f);
-        s->wander_ang = frange(-PI_F, PI_F);
-    }
-    return s->wander_ang;
-}
-
-static void step(Snake *s, float tgt, float dt, int moving, int turbo)
-{
-    if (moving) {
-        float d = angdiff(s->ang, tgt);
-        float mt = 3.4f * dt;
-        if (d >  mt) d =  mt;
-        if (d < -mt) d = -mt;
-        s->ang += d;
-        float sp = turbo ? 240.0f : 135.0f;
-        s->hx += cosf(s->ang) * sp * dt;
-        s->hy += sinf(s->ang) * sp * dt;
-    }
-
-    /* turbo: perde tamanho e solta rastro */
-    if (turbo && moving && s->len > 8) {
-        s->tacc += dt * 7.0f;
-        if (s->tacc >= 1.0f) {
-            s->tacc -= 1.0f;
-            drop_pel(s->bx[s->len - 1], s->by[s->len - 1], s->col);
-            s->len--;
-        }
-    }
-
-    /* corpo segue a cabeça mantendo espaçamento fixo */
-    float px = s->hx, py = s->hy;
-    for (int i = 0; i < s->len; i++) {
-        float dx = px - s->bx[i], dy = py - s->by[i];
-        float dd = sqrtf(dx * dx + dy * dy);
-        if (dd > SEG) {
-            float k = (dd - SEG) / dd;
-            s->bx[i] += dx * k;
-            s->by[i] += dy * k;
-        }
-        px = s->bx[i];
-        py = s->by[i];
+        x += 4.0f * sc * 1.3f;
     }
 }
 
 /* ---------- jogo ---------- */
 
-static void init_game(void)
+static float radius_of(const Snake *s)
 {
-    for (int k = 0; k < NSNAKES; k++) {
-        snakes[k].col = palette[k];
-        spawn(&snakes[k], k == 0);
-    }
-    for (int p = 0; p < 450; p++)
-        spawn_pel_random(p);
+    int l = s->len > 240 ? 240 : s->len;
+    return 9.0f + l * 0.035f;
 }
 
-static void update(void)
+static void add_pellet(float x, float y, int size)
 {
-    const float dt = 1.0f / 60.0f;
-    float mx, my;
-    int moving, boost, cross;
-    read_input(&mx, &my, &moving, &boost, &cross);
-
-    Snake *P = &snakes[0];
-
-    /* jogador */
-    if (P->alive) {
-        float tgt = moving ? atan2f(my, mx) : P->ang;
-        int turbo = boost && moving && P->len > 8;
-        P->turbo = turbo;
-        step(P, tgt, dt, moving, turbo);
-    } else if (cross) {
-        spawn(P, 1);
-        camx = P->hx;
-        camy = P->hy;
-    }
-
-    /* bots */
-    for (int k = 1; k < NSNAKES; k++) {
-        Snake *s = &snakes[k];
-        if (!s->alive) {
-            s->respawn_t -= dt;
-            if (s->respawn_t <= 0.0f) spawn(s, 0);
-            continue;
+    for (int k = 0; k < NPEL; k++) {
+        int i = (pelrot + k) % NPEL;
+        if (!pel[i].active) {
+            pel[i].x = x;
+            pel[i].y = y;
+            pel[i].size = size;
+            pel[i].active = 1;
+            pel[i].col = palette[rand() % 8];
+            pelrot = (i + 1) % NPEL;
+            return;
         }
-        step(s, bot_target(s), dt, 1, 0);
+    }
+}
+
+static void spawn_snake(int i)
+{
+    Snake *s = &sn[i];
+    float x = 400 + frand() * (WORLD - 800);
+    float y = 400 + frand() * (WORLD - 800);
+    s->ang = frand() * 2 * PI;
+    s->tgt = s->ang;
+    s->len = 10;
+    for (int j = 0; j < s->len; j++) {
+        s->x[j] = x - cosf(s->ang) * SP * j;
+        s->y[j] = y - sinf(s->ang) * SP * j;
+    }
+    s->alive = 1;
+    s->respawn = 0;
+    s->boost = 0;
+    s->grow = 0;
+    s->tick = 0;
+    s->col = palette[i % 8];
+}
+
+static void kill_snake(int i)
+{
+    Snake *s = &sn[i];
+    for (int j = 0; j < s->len; j += 2)
+        add_pellet(s->x[j] + (frand() - 0.5f) * 10, s->y[j] + (frand() - 0.5f) * 10, 2);
+    s->alive = 0;
+    s->respawn = 240;
+    if (i == 0) dead_t = 0;
+}
+
+static void bot_think(int i)
+{
+    Snake *s = &sn[i];
+    float hx = s->x[0], hy = s->y[0];
+    s->tgt += (frand() - 0.5f) * 0.25f;
+
+    if (s->tick % 6 == 0) {
+        float best = 380.0f * 380.0f;
+        int bi = -1;
+        for (int k = 0; k < NPEL; k++) {
+            if (!pel[k].active) continue;
+            float dx = pel[k].x - hx, dy = pel[k].y - hy, d = dx * dx + dy * dy;
+            if (d < best) { best = d; bi = k; }
+        }
+        if (bi >= 0) s->tgt = atan2f(pel[bi].y - hy, pel[bi].x - hx);
     }
 
-    /* colisões: parede, corpos */
-    for (int a = 0; a < NSNAKES; a++) {
-        Snake *sa = &snakes[a];
-        if (!sa->alive) continue;
+    if (hx < 250 || hx > WORLD - 250 || hy < 250 || hy > WORLD - 250)
+        s->tgt = atan2f(WORLD / 2 - hy, WORLD / 2 - hx);
 
-        int dead = (sa->hx * sa->hx + sa->hy * sa->hy > WORLD * WORLD);
-
-        for (int b = 0; b < NSNAKES && !dead; b++) {
-            Snake *sb = &snakes[b];
-            if (!sb->alive) continue;
-            int start = (a == b) ? 10 : 0;
-            for (int i = start; i < sb->len; i++) {
-                float dx = sb->bx[i] - sa->hx, dy = sb->by[i] - sa->hy;
-                if (dx * dx + dy * dy < 7.0f * 7.0f) { dead = 1; break; }
+    float px = hx + cosf(s->ang) * 55, py = hy + sinf(s->ang) * 55;
+    float rs = radius_of(s);
+    for (int o = 0; o < NSN; o++) {
+        if (o == i || !sn[o].alive) continue;
+        float lim = rs + radius_of(&sn[o]) + 25;
+        lim *= lim;
+        for (int j = 0; j < sn[o].len; j += 2) {
+            float dx = sn[o].x[j] - px, dy = sn[o].y[j] - py;
+            if (dx * dx + dy * dy < lim) {
+                s->tgt = s->ang + 1.6f;
+                return;
             }
         }
+    }
+}
 
-        if (dead) kill_snake(sa);
+static void update_snake(int i)
+{
+    Snake *s = &sn[i];
+    if (!s->alive) {
+        if (i > 0 && --s->respawn <= 0) spawn_snake(i);
+        return;
+    }
+    s->tick++;
+
+    if (i == 0) {
+        if (pad_mag > 0.3f) s->tgt = atan2f(pad_ay, pad_ax);
+        s->boost = pad_boost;
+    } else {
+        bot_think(i);
+        s->boost = (s->len > 30 && (s->tick / 90) % 5 == 0) ? 1 : 0;
     }
 
-    /* comida */
-    for (int k = 0; k < NSNAKES; k++) {
-        Snake *s = &snakes[k];
-        if (!s->alive) continue;
-        for (int p = 0; p < MAX_PEL; p++) {
-            if (!pel[p].on) continue;
-            float dx = pel[p].x - s->hx, dy = pel[p].y - s->hy;
-            if (dx * dx + dy * dy < 14.0f * 14.0f) {
-                spawn_pel_random(p);
-                grow(s);
-                s->score++;
-            }
+    float d = s->tgt - s->ang;
+    while (d >  PI) d -= 2 * PI;
+    while (d < -PI) d += 2 * PI;
+    if (d >  0.075f) d =  0.075f;
+    if (d < -0.075f) d = -0.075f;
+    s->ang += d;
+
+    float sp = 3.0f;
+    if (s->boost && s->len > 12) {
+        sp = 5.4f;
+        if (s->tick % 10 == 0) {
+            s->len--;
+            add_pellet(s->x[s->len], s->y[s->len], 1);
         }
     }
 
-    /* câmera e zoom */
-    if (P->alive) {
-        camx += (P->hx - camx) * 0.12f;
-        camy += (P->hy - camy) * 0.12f;
+    s->x[0] += cosf(s->ang) * sp;
+    s->y[0] += sinf(s->ang) * sp;
+    for (int j = 1; j < s->len; j++) {
+        float dx = s->x[j - 1] - s->x[j], dy = s->y[j - 1] - s->y[j];
+        float dd = sqrtf(dx * dx + dy * dy);
+        if (dd > SP) {
+            float f = (dd - SP) / dd;
+            s->x[j] += dx * f;
+            s->y[j] += dy * f;
+        }
+    }
+
+    if (s->x[0] < 0 || s->x[0] > WORLD || s->y[0] < 0 || s->y[0] > WORLD) {
+        kill_snake(i);
+        return;
+    }
+
+    float rs = radius_of(s), er = rs + 12;
+    for (int k = 0; k < NPEL; k++) {
+        if (!pel[k].active) continue;
+        float dx = pel[k].x - s->x[0], dy = pel[k].y - s->y[0];
+        if (dx * dx + dy * dy < er * er) {
+            pel[k].active = 0;
+            s->grow += pel[k].size;
+            s->score += pel[k].size * 5;
+        }
+    }
+    while (s->grow >= 2 && s->len < MAXSEG) {
+        s->x[s->len] = s->x[s->len - 1];
+        s->y[s->len] = s->y[s->len - 1];
+        s->len++;
+        s->grow -= 2;
+    }
+    if (s->len >= MAXSEG) s->grow = 0;
+
+    for (int o = 0; o < NSN; o++) {
+        if (o == i || !sn[o].alive) continue;
+        float lim = (rs + radius_of(&sn[o])) * 0.75f;
+        lim *= lim;
+        for (int j = 0; j < sn[o].len; j++) {
+            float dx = sn[o].x[j] - s->x[0], dy = sn[o].y[j] - s->y[0];
+            if (dx * dx + dy * dy < lim) {
+                kill_snake(i);
+                return;
+            }
+        }
+    }
+}
+
+static void init_game(void)
+{
+    memset(pel, 0, sizeof(pel));
+    for (int k = 0; k < NPEL; k++)
+        add_pellet(frand() * WORLD, frand() * WORLD, 1 + (rand() % 5 == 0));
+    for (int i = 0; i < NSN; i++) {
+        sn[i].score = 0;
+        spawn_snake(i);
+    }
+    dead_t = 0;
+}
+
+static void read_pad(void)
+{
+    padInfo info;
+    padData d;
+    pad_ax = pad_ay = pad_mag = 0;
+    pad_boost = pad_x = 0;
+    ioPadGetInfo(&info);
+    if (info.status[0]) {
+        ioPadGetData(0, &d);
+        float ax = ((int)d.ANA_L_H - 128) / 128.0f;
+        float ay = ((int)d.ANA_L_V - 128) / 128.0f;
+        if (d.BTN_LEFT)  ax = -1;
+        if (d.BTN_RIGHT) ax =  1;
+        if (d.BTN_UP)    ay = -1;
+        if (d.BTN_DOWN)  ay =  1;
+        pad_ax = ax;
+        pad_ay = ay;
+        pad_mag = sqrtf(ax * ax + ay * ay);
+        pad_boost = d.BTN_CROSS || d.BTN_R1 || d.BTN_R2;
+        pad_x = d.BTN_CROSS;
+    }
+}
+
+static void update_game(void)
+{
+    for (int i = 0; i < NSN; i++) update_snake(i);
+
+    int count = 0;
+    for (int k = 0; k < NPEL; k++) count += pel[k].active;
+    for (int n = 0; n < 2 && count < NPEL - 40; n++, count++)
+        add_pellet(frand() * WORLD, frand() * WORLD, 1 + (rand() % 5 == 0));
+
+    if (sn[0].alive) {
+        camx += (sn[0].x[0] - camx) * 0.12f;
+        camy += (sn[0].y[0] - camy) * 0.12f;
+        float tz = 1.0f / (0.9f + (float)sn[0].len / 600.0f);
+        if (tz < 0.5f) tz = 0.5f;
+        if (tz > 1.0f) tz = 1.0f;
+        zoom += (tz - zoom) * 0.04f;
+    } else {
+        dead_t++;
+        if (dead_t > 60 && pad_x && !x_prev) {
+            spawn_snake(0);
+            sn[0].score = 0;
+            camx = sn[0].x[0];
+            camy = sn[0].y[0];
+        }
+    }
+    x_prev = pad_x;
+}
+
+/* ---------- render ---------- */
+
+static void draw_grid(void)
+{
+    float hw = SCR_W * 0.5f / zoom + GRID;
+    float hh = SCR_H * 0.5f / zoom + GRID;
+    float x0 = floorf((camx - hw) / GRID) * GRID;
+    float y0 = floorf((camy - hh) / GRID) * GRID;
+    for (float gx = x0; gx < camx + hw; gx += GRID) {
+        if (gx < 0 || gx > WORLD) continue;
+        for (float gy = y0; gy < camy + hh; gy += GRID) {
+            if (gy < 0 || gy > WORLD) continue;
+            glow(SX(gx), SY(gy), 2.5f * zoom + 1.0f, 0x2A3A4A, 110);
+        }
+    }
+}
+
+static void draw_arena_edge(void)
+{
+    float r = 6.0f * zoom + 1.0f;
+    for (float t = 0; t <= WORLD; t += 40.0f) {
+        glow(SX(t), SY(0),     r, 0xFF3355, 230);
+        glow(SX(t), SY(WORLD), r, 0xFF3355, 230);
+        glow(SX(0),     SY(t), r, 0xFF3355, 230);
+        glow(SX(WORLD), SY(t), r, 0xFF3355, 230);
+    }
+}
+
+static void draw_pellets(void)
+{
+    for (int k = 0; k < NPEL; k++) {
+        if (!pel[k].active) continue;
+        float x = SX(pel[k].x), y = SY(pel[k].y);
+        if (x < -40 || x > SCR_W + 40 || y < -40 || y > SCR_H + 40) continue;
+        float r = (3.0f + pel[k].size * 1.5f) * zoom;
+        glow(x, y, r * 2.4f, pel[k].col, 60);
+        glow(x, y, r, pel[k].col, 255);
+        glow(x, y, r * 0.4f, 0xFFFFFFu, 255);
+    }
+}
+
+static void draw_snake(const Snake *s, int full)
+{
+    float r = radius_of(s) * zoom;
+    int step = full ? 1 : 2;
+    u32 col = s->col;
+    u32 hi = 0xFFFFFFu;
+
+    for (int j = s->len - 1; j >= 0; j -= step) {
+        float x = SX(s->x[j]), y = SY(s->y[j]);
+        if (x < -r * 2 || x > SCR_W + r * 2 || y < -r * 2 || y > SCR_H + r * 2) continue;
+        if (full)
+            glow(x + 3.0f * zoom, y + 5.0f * zoom, r * 1.05f, 0x000000, 90);
+        glow(x, y, r, col, 255);
+        if ((j % 4) == 0)
+            glow(x - r * 0.25f, y - r * 0.3f, r * 0.42f, hi, 110);
+    }
+
+    float hx = SX(s->x[0]), hy = SY(s->y[0]);
+    float hr = r * 1.15f;
+    glow(hx + 3.0f * zoom, hy + 5.0f * zoom, hr * 1.05f, 0x000000, 90);
+    glow(hx, hy, hr, col, 255);
+    glow(hx - hr * 0.2f, hy - hr * 0.3f, hr * 0.4f, hi, 140);
+
+    float fx = cosf(s->ang), fy = sinf(s->ang);
+    float px = -fy, py = fx;
+    float ex = hx + fx * hr * 0.4f, ey = hy + fy * hr * 0.4f;
+    glow(ex + px * hr * 0.45f, ey + py * hr * 0.45f, hr * 0.22f, 0xFFFFFFu, 255);
+    glow(ex - px * hr * 0.45f, ey - py * hr * 0.45f, hr * 0.22f, 0xFFFFFFu, 255);
+    glow(ex + px * hr * 0.45f + fx * hr * 0.08f, ey + py * hr * 0.45f + fy * hr * 0.08f,
+         hr * 0.10f, 0x000000u, 255);
+    glow(ex - px * hr * 0.45f + fx * hr * 0.08f, ey - py * hr * 0.45f + fy * hr * 0.08f,
+         hr * 0.10f, 0x000000u, 255);
+}
+
+static void draw_minimap(void)
+{
+    float mx = SCR_W - 90.0f, my = 90.0f, mr = 62.0f;
+    glow(mx, my, mr * 1.05f, 0x000000, 140);
+    for (int k = NSN - 1; k >= 0; k--) {
+        if (!sn[k].alive) continue;
+        float x = mx + sn[k].x[0] / WORLD * mr * 2.0f - mr;
+        float y = my + sn[k].y[0] / WORLD * mr * 2.0f - mr;
+        glow(x, y, k == 0 ? 5.0f : 3.0f, sn[k].col, 255);
+    }
+}
+
+static void draw_hud(void)
+{
+    char buf[32];
+    float sc = 3.0f;
+
+    draw_text("SCORE", 24, 20, sc, 0xFFFFFFu);
+    sprintf(buf, "%d", sn[0].score);
+    draw_text(buf, 24, 20 + 7 * sc * 1.3f, sc + 1.0f, 0xFFD23Fu);
+
+    draw_text("X TURBO", 24, SCR_H - 40, sc, 0x809BBFu);
+
+    /* placar: top 5 */
+    int order[NSN];
+    for (int i = 0; i < NSN; i++) order[i] = i;
+    for (int i = 0; i < NSN; i++)
+        for (int j = i + 1; j < NSN; j++)
+            if (sn[order[j]].score > sn[order[i]].score) {
+                int t = order[i];
+                order[i] = order[j];
+                order[j] = t;
+            }
+    for (int r = 0; r < 5; r++) {
+        int k = order[r];
+        float y = 190.0f + r * 26.0f;
+        glow(SCR_W - 170.0f, y + 6.0f, 6.0f, sn[k].col, 255);
+        sprintf(buf, "%d", sn[k].score);
+        draw_text(buf, SCR_W - 150.0f, y, 2.5f, 0xFFFFFFu);
+    }
+
+    if (!sn[0].alive) {
+        glow(SCR_W * 0.5f, SCR_H * 0.5f, 420.0f, 0x000000, 130);
+        const char *t1 = "GAME OVER";
+        draw_text(t1, SCR_W * 0.5f - text_width(t1, 6.0f) * 0.5f, SCR_H * 0.5f - 60, 6.0f, 0xFF4D4Du);
+        if (dead_t > 60) {
+            const char *t2 = "PRESS X";
+            draw_text(t2, SCR_W * 0.5f - text_width(t2, 3.5f) * 0.5f, SCR_H * 0.5f + 20, 3.5f, 0xFFFFFFu);
+        }
     }
 }
 
 static void render(void)
 {
-    Snake *P = &snakes[0];
-
-    tiny3d_Clear(BG_COLOR, TINY3D_CLEAR_ALL);
+    tiny3d_Clear(BG, TINY3D_CLEAR_ALL);
     tiny3d_Project2D();
 
-    float tz = 1.0f / (0.8f + (float)P->len / 500.0f);
-    if (tz < 0.42f) tz = 0.42f;
-    if (tz > 1.0f)  tz = 1.0f;
-    zoom += (tz - zoom) * 0.04f;
-
     draw_grid();
-    draw_arena();
+    draw_arena_edge();
     draw_pellets();
 
-    for (int k = NSNAKES - 1; k >= 1; k--)
-        if (snakes[k].alive) draw_snake(&snakes[k], 0);
-    if (P->alive) draw_snake(P, 1);
+    for (int i = NSN - 1; i >= 1; i--)
+        if (sn[i].alive) draw_snake(&sn[i], 0);
+    if (sn[0].alive) draw_snake(&sn[0], 1);
 
     draw_minimap();
-
-    if (!P->alive)
-        glow(SCR_W * 0.5f, SCR_H * 0.5f, 400.0f, 0x000000, 110);
-}
-
-/* ---------- sistema ---------- */
-
-static void sysutil_cb(uint64_t status, uint64_t param, void *userdata)
-{
-    (void)param;
-    (void)userdata;
-    if (status == SYSUTIL_EXIT_GAME)
-        g_exit = 1;
+    draw_hud();
 }
 
 int main(void)
 {
-    sysRegisterCallback(EVENT_SLOT0, sysutil_cb, NULL);
+    sysUtilRegisterCallback(0, sysutil_cb, NULL);
     ioPadInit(7);
-    tiny3d_Init(4 * 1024 * 1024);   /* VERIFICAR tamanho do buffer */
-
+    tiny3d_Init(4 * 1024 * 1024);
+    srand(20261109);
     init_game();
 
-    while (!g_exit) {
-        update();
+    while (running) {
+        sysUtilCheckCallback();
+        read_pad();
+        update_game();
         render();
         tiny3d_Flip();
     }

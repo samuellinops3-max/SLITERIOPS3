@@ -13,7 +13,7 @@ SFOXML    := sfo.xml
 PORTLIBS  := $(PS3DEV)/portlibs/ppu
 
 MACHDEP := -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
-CFLAGS  := -O2 -Wall -mcpu=cell $(MACHDEP) -I$(PSL1GHT)/ppu/include -I$(PORTLIBS)/include
+CFLAGS  := -O2 -mcpu=cell $(MACHDEP) -I$(PSL1GHT)/ppu/include -I$(PORTLIBS)/include -Wno-unused-function -Wno-unused-variable -Wno-unused-const-variable
 LDFLAGS := $(MACHDEP) -L$(PSL1GHT)/ppu/lib -L$(PORTLIBS)/lib
 LIBS    := -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm
 

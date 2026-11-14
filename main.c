@@ -520,4 +520,10 @@ int main(int argc, char **argv)
     init_game();
     while (running) {
         sysUtilCheckCallback();
-        re
+                read_pad();
+        update_game();
+        render();
+        present();
+    }
+    return 0;
+}

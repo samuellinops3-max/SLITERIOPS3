@@ -1,6 +1,4 @@
 // Contra Novo - identico ao original - PS3 Homebrew PSL1GHT nativo
-// Mesma base que funciona no Github: RSX, framebuffer, io/pad, sem SDL
-// Controles: analogico esquerdo / direcional = andar + mirar, X = pular, Quadrado / R1 / R2 = atirar, Cima = mirar pra cima
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +13,6 @@
 
 #define CB_SIZE   (0x100000)
 #define HOST_SIZE (32 * 1024 * 1024)
-
 #define WORLD  4800.0f
 #define MAXEN  24
 #define MAXBUL 64
@@ -33,6 +30,7 @@ static const u32 palette[8] = {
     0x00FF4D4D, 0x0055D6FF, 0x0066FF66, 0x00FFD23F,
     0x00C77DFF, 0x00FF8FAB, 0x0000E5C0, 0x00FF9F43
 };
+static u32 use_palette(void){ return palette[0] + palette[1]; }
 
 /* ---------- video ---------- */
 static gcmContextData *ctx;
@@ -53,18 +51,15 @@ static void init_screen(void)
 {
     void *host = memalign(1024 * 1024, HOST_SIZE);
     rsxInit(&ctx, CB_SIZE, HOST_SIZE, host);
-
     videoState st;
     videoGetState(VIDEO_PRIMARY, 0, &st);
     u32 resid = st.displayMode.resolution;
     if (videoGetResolutionAvailability(VIDEO_PRIMARY, VIDEO_RESOLUTION_720, VIDEO_ASPECT_AUTO, 0))
         resid = VIDEO_RESOLUTION_720;
-
     videoResolution res;
     videoGetResolution(resid, &res);
     W = res.width;
     H = res.height;
-
     videoConfiguration vc;
     memset(&vc, 0, sizeof(vc));
     vc.resolution = resid;
@@ -73,9 +68,7 @@ static void init_screen(void)
     vc.pitch = W * 4;
     videoConfigure(VIDEO_PRIMARY, &vc, NULL, 0);
     videoGetState(VIDEO_PRIMARY, 0, &st);
-
     gcmSetFlipMode(GCM_FLIP_VSYNC);
-
     for (int i = 0; i < 2; i++) {
         fb[i] = (u32 *)rsxMemalign(64, W * H * 4);
         gcmAddressToOffset(fb[i], &fboff[i]);
@@ -133,7 +126,6 @@ static void circle(int cx, int cy, int r, u32 c)
     }
 }
 
-/* fonte 3x5 minima */
 typedef struct { char c; const char *p; } Glyph;
 static const Glyph glyphs[] = {
     {'0', "###" "#.#" "#.#" "#.#" "###"}, {'1', ".#." "##." ".#." ".#." "###"},
@@ -235,6 +227,7 @@ static void init_game(void)
     for (int i = 0; i < 6; i++) spawn_enemy_at(700 + i * 600 + frand() * 200, GROUND_Y - 40, 0);
     spawn_enemy_at(1600, 380 - 40, 1);
     spawn_enemy_at(2800, 380 - 40, 1);
+    (void)use_palette();
 }
 
 static void player_shoot(void)
@@ -310,8 +303,6 @@ static void update_game(void)
     }
     if (pShootCd > 0) pShootCd--;
     if (pInv > 0) pInv--;
-
-    // Jogador
     if (!pDead) {
         pAimUp = (pad_ay < -0.5f);
         pCrouch = (pad_ay > 0.6f && ponGround);
@@ -323,13 +314,11 @@ static void update_game(void)
         px += pvx;
         if (px < 20) px = 20;
         if (px > WORLD - 40) px = WORLD - 40;
-        // Pulo
         if (pad_jump && !pad_jump_prev && ponGround) { pvy = -14.5f; ponGround = 0; }
         pvy += GRAV;
         if (pvy > 16) pvy = 16;
         float oldY = py;
         py += pvy;
-        // Chao / plataformas
         ponGround = 0;
         if (pvy >= 0) {
             float ly = 0;
@@ -337,7 +326,6 @@ static void update_game(void)
         }
         if (py > 900) { pDead = 1; pDeadT = 0; }
         if (pad_shoot) player_shoot();
-        // Camera
         float targetCam = px - W / 2.5f;
         if (targetCam < 0) targetCam = 0;
         if (targetCam > WORLD - W) targetCam = WORLD - W;
@@ -354,15 +342,12 @@ static void update_game(void)
     }
     pad_jump_prev = pad_jump;
     pad_x_prev = pad_x;
-
-    // Spawn inimigos
     spawnTimer++;
     if (spawnTimer > 70) {
         spawnTimer = 0;
         float sx = camx + W + 40 + frand() * 200;
         if (sx < WORLD - 100) spawn_enemy_at(sx, GROUND_Y - 40, rand() % 5 == 0 ? 1 : 0);
     }
-    // Inimigos
     for (int i = 0; i < MAXEN; i++) {
         Enemy *e = &ens[i];
         if (!e->alive) continue;
@@ -374,12 +359,10 @@ static void update_game(void)
             e->shootTimer--;
             if (e->shootTimer <= 0) { e->shootTimer = 90 + rand() % 60; enemy_shoot(e); }
         }
-        // Colisao com jogador
         if (!pDead && pInv <= 0) {
             if (fabsf(e->x - (px + 14)) < 26 && fabsf(e->y - (py + 18)) < 34) { pDead = 1; pDeadT = 0; }
         }
     }
-    // Balas jogador
     for (int i = 0; i < MAXBUL; i++) {
         if (!buls[i].alive) continue;
         buls[i].x += buls[i].vx; buls[i].y += buls[i].vy;
@@ -394,7 +377,6 @@ static void update_game(void)
             }
         }
     }
-    // Balas inimigas
     for (int i = 0; i < MAXEBUL; i++) {
         if (!ebul[i].alive) continue;
         ebul[i].x += ebul[i].vx; ebul[i].y += ebul[i].vy;
@@ -409,27 +391,19 @@ static void draw_player(int sx, int sy, float sc)
 {
     int s = (int)(sc * 2);
     if (s < 2) s = 2;
-    if (pDead) {
-        fill_rect(sx, sy + 10, 28 * s / 2, 8 * s / 2, 0x00FF4D4D);
-        return;
-    }
+    if (pDead) { fill_rect(sx, sy + 10, 28 * s / 2, 8 * s / 2, 0x00FF4D4D); return; }
     if (pInv > 0 && (frame / 6) % 2 == 0) return;
     int bodyH = pCrouch ? 22 : 38;
     int bodyY = sy + (pCrouch ? 18 : 0);
-    // Pernas
     int legSwing = (fabsf(pvx) > 0.1f && ponGround) ? ((pAnim / 5) % 2 ? 6 : -6) : 0;
     fill_rect(sx + 4, bodyY + bodyH, 6, 12, 0x001A3A8F);
     fill_rect(sx + 18, bodyY + bodyH, 6, 12, 0x001A3A8F);
     if (legSwing != 0) fill_rect(sx + 4 + legSwing, bodyY + bodyH + 10, 6, 4, 0x00000000);
-    // Corpo - camisa vermelha igual Contra original, calca azul
     fill_rect(sx, bodyY, 28, bodyH, 0x00E82E2E);
     fill_rect(sx + 2, bodyY + 4, 24, 8, 0x00FF6B6B);
-    // Cabeca
     fill_rect(sx + 6, bodyY - 14, 16, 14, 0x00FFD9B0);
     fill_rect(sx + 6, bodyY - 14, 16, 4, 0x00FF0000);
-    // Bandana vermelha
     fill_rect(sx + 4, bodyY - 12, 22, 4, 0x00FF0000);
-    // Braco + arma
     if (pAimUp) {
         fill_rect(sx + 10, bodyY - 10, 6, 18, 0x00FFD9B0);
         fill_rect(sx + 10, bodyY - 22, 6, 16, 0x00333333);
@@ -443,22 +417,16 @@ static void draw_player(int sx, int sy, float sc)
 static void render(void)
 {
     float sc = (float)W / 1280.0f;
-    float hw = 0;
-    (void)hw;
     u32 n = W * H;
     for (u32 i = 0; i < n; i++) back[i] = 0x000E1420;
-
-    // Ceu degradê
     for (int y = 0; y < (int)H; y++) {
         int r = 12 + y / 30, g = 28 + y / 18, b = 70 + y / 10;
         if (r > 60) r = 60; if (g > 120) g = 120; if (b > 160) b = 160;
         u32 col = ((u32)r << 16) | ((u32)g << 8) | b;
         for (int x = 0; x < (int)W; x++) back[y * W + x] = col;
     }
-    // Sol
     circle((int)(W - 180 - camx * 0.02f), 90, 42, 0x00FFD23F);
     circle((int)(W - 180 - camx * 0.02f), 90, 34, 0x00FFEA7A);
-    // Montanhas fundo parallax
     for (int i = 0; i < 12; i++) {
         int mx = (int)(i * 420 - fmodf(camx * 0.3f, 420));
         int mh = 90 + (i * 37) % 110;
@@ -467,10 +435,8 @@ static void render(void)
             fill_rect(mx + y / 2, GROUND_Y - y, wdt, 2, 0x002A4A2A);
         }
     }
-    // Plataformas / chao
     for (int i = 0; i < MAXPLAT; i++) {
-        int sx = (int)((plats[i].x - camx) * sc + W / 2 - W / 2);
-        sx = (int)(plats[i].x - camx);
+        int sx = (int)(plats[i].x - camx);
         int sy = plats[i].y;
         int wdt = (int)plats[i].w;
         if (sx + wdt < 0 || sx > (int)W) continue;
@@ -483,7 +449,6 @@ static void render(void)
             fill_rect(sx, sy + 14, wdt, 6, 0x005A3A1A);
         }
     }
-    // Base final - igual Contra
     if (WORLD - camx < W + 200) {
         int bx = (int)(WORLD - 180 - camx);
         fill_rect(bx, 380, 180, 240, 0x00666A70);
@@ -491,7 +456,6 @@ static void render(void)
         fill_rect(bx + 100, 400, 60, 60, 0x00FF4D4D);
         draw_text("BASE", bx + 50, 460, 3, 0x00FFFFFF);
     }
-    // Inimigos
     for (int i = 0; i < MAXEN; i++) {
         Enemy *e = &ens[i];
         if (!e->alive) continue;
@@ -512,7 +476,6 @@ static void render(void)
             fill_rect(sx - 20, sy + 10, 18, 6, 0x00333333);
         }
     }
-    // Balas
     for (int i = 0; i < MAXBUL; i++) if (buls[i].alive) {
         int sx = (int)(buls[i].x - camx), sy = (int)buls[i].y;
         fill_rect(sx, sy, 10, 4, 0x00FFFF00);
@@ -522,10 +485,7 @@ static void render(void)
         int sx = (int)(ebul[i].x - camx), sy = (int)ebul[i].y;
         circle(sx, sy, 5, 0x00FF4D4D);
     }
-    // Jogador
     draw_player((int)(px - camx), (int)py, sc);
-
-    // HUD igual Contra original
     int ui = (int)(4 * sc + 0.5f);
     if (ui < 3) ui = 3;
     draw_text("SCORE", 24, 18, ui, 0x00FFFFFF);
@@ -536,9 +496,28 @@ static void render(void)
     draw_text(buf, 24, 18 + 15 * ui, ui, 0x00FF8FAB);
     draw_text("CONTRA", (int)W / 2 - 60, 18, ui, 0x00FFD23F);
     draw_text("X PULA  QUADRADO ATIRA", 24, (int)H - 8 * ui, ui, 0x00809BBF);
-
     if (gameOver) {
         int bw = text_width("GAME OVER", ui * 2) + 80, bh = 16 * ui + 40;
         fill_rect((int)W / 2 - bw / 2, (int)H / 2 - bh / 2, bw, bh, 0x00000000);
         draw_text("GAME OVER", (int)W / 2 - text_width("GAME OVER", ui * 2) / 2, (int)H / 2 - bh / 2 + 24, ui * 2, 0x00FF4D4D);
-        draw_text("PRES
+        draw_text("PRESS X", (int)W / 2 - text_width("PRESS X", ui) / 2, (int)H / 2 + ui * 3, ui, 0x00FFFFFF);
+    }
+    if (levelClear) {
+        int bw = text_width("MISSION CLEAR", ui * 2) + 80, bh = 16 * ui + 40;
+        fill_rect((int)W / 2 - bw / 2, (int)H / 2 - bh / 2, bw, bh, 0x00000000);
+        draw_text("MISSION CLEAR", (int)W / 2 - text_width("MISSION CLEAR", ui * 2) / 2, (int)H / 2 - bh / 2 + 24, ui * 2, 0x0066FF66);
+        draw_text("PRESS X", (int)W / 2 - text_width("PRESS X", ui) / 2, (int)H / 2 + ui * 3, ui, 0x00FFFFFF);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    init_screen();
+    ioPadInit(7);
+    sysUtilRegisterCallback(0, sysutil_cb, NULL);
+    srand(20261109);
+    init_game();
+    while (running) {
+        sysUtilCheckCallback();
+        re
